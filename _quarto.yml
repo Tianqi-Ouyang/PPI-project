@@ -1,0 +1,46 @@
+project:
+  type: website
+  output-dir: _site
+  render:
+    - index.qmd
+    - data_management.qmd
+    - analysis.qmd
+    - PPI_ANALYSIS_PLAN.md
+
+website:
+  title: "PPI → AKI after ICI"
+  description: "New-user cohort, time-varying Cox model (code reference)"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Overview
+      - href: PPI_ANALYSIS_PLAN.md
+        text: Plan & Bug Audit
+      - href: data_management.qmd
+        text: Data Management
+      - href: analysis.qmd
+        text: Analysis
+  page-footer:
+    left: "© 2026 · Code reference only — no patient data rendered"
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    code-fold: true         # per-chunk collapsible; click "Show code" to expand
+    code-summary: "Show code"
+    code-tools: false       # no global page-level toggle
+    code-copy: true
+    smooth-scroll: true
+    anchor-sections: true
+    fig-width: 10
+    fig-height: 6
+    fig-dpi: 110
+
+execute:
+  echo: true        # echo code into HTML so code-fold has something to fold
+  warning: false
+  message: false
+  freeze: auto

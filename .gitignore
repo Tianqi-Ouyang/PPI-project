@@ -1,0 +1,35 @@
+# Data files (contain PHI — never commit)
+*.xlsx
+*.xls
+*.csv
+*.rds
+
+# Intermediate pipeline cache: holds EMPI-keyed frames and the purled script
+cache/
+
+# Rendered outputs
+*.html
+*_files/
+*_cache/
+
+# R / RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Quarto
+/.quarto/
+_freeze/
+# _site/ is a build artifact; publish it with `quarto publish gh-pages`, which
+# handles the branch split automatically. Never commit it to the source branch.
+_site/
+
+# macOS
+.DS_Store
+
+# rsconnect deployment records
+rsconnect/
+
+**/*.quarto_ipynb

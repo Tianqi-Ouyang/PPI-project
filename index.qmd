@@ -1,0 +1,101 @@
+---
+title: "PPI → AKI after ICI"
+subtitle: "New-user cohort, time-varying Cox model, 730-day horizon"
+---
+
+## The question
+
+Among patients who were **not already on a proton-pump inhibitor** when they
+started immune checkpoint inhibitor therapy, does *starting* a PPI raise the
+hazard of acute kidney injury over the following two years?
+
+This is a sub-study of the ICI-CKD cohort. It reuses that project's baseline
+covariates and rebuilds the exposure and the outcome from raw RPDR extracts,
+because both were affected by bugs documented in
+[the plan and bug audit](PPI_ANALYSIS_PLAN.md).
+
+## Pipeline
+
+| Stage | File | Role |
+|---|---|---|
+| **Plan & bug audit** | [`PPI_ANALYSIS_PLAN.md`](PPI_ANALYSIS_PLAN.md) | Every confirmed defect with file:line references, and the analysis plan that follows from it |
+| **Shared helpers** | [`R/ppi_functions.R`](R/ppi_functions.R) | Single definition of every function — privacy guards, rolling lookbacks, the fixed `create_aki()`, counting-process construction |
+| **Data management** | [`data_management.qmd`](data_management.qmd) | Cohort ledger, exposure derivation, repaired AKI outcome, time-varying covariates, counting-process frames |
+| **Analysis** | [`analysis.qmd`](analysis.qmd) | Time-varying Cox models M0-M12, induction ladder, mirror window, death negative control, active comparator, competing risk |
+
+No function is defined twice anywhere in this project. Two divergent copies of
+`create_aki()` — one in `Final cohort/aki.Rmd`, one in the ICI-CKD
+`data_management.qmd` — silently disagreed at the KDIGO boundary, and that is
+the defect the single-source-of-truth layout exists to prevent.
+
+## Cohort
+
+| Step | N |
+|---|---|
+| ICI-CKD analytic master, as saved | 17,721 |
+| − RPDR death date before ICI start | 17,718 |
+| − PPI on or before ICI start (not new-user eligible) | −8,637 |
+| = new-user eligible | 9,081 |
+| − no post-ICI creatinine (AKI unascertainable) | −170 |
+| **= analytic cohort** | **8,911** |
+
+Every step is executed and asserted in code. The parent cohort's published
+ledger documented seven steps but implemented five, and the saved file carries
+17,721 rows against a published 17,718 — the two missing steps are re-applied
+here.
+
+## Design
+
+**Time zero** is the first ICI dose. **Follow-up** ends at the earliest of AKI,
+last creatinine, death, or 730 days. **Exposure** is time-varying: a patient who
+starts a PPI on day 120 and has an AKI on day 200 contributes 120 *unexposed*
+days and 80 *exposed* days, not 200 exposed days. Treating that patient as
+exposed from day 0 is immortal time bias, and it is measured explicitly in the
+analysis rather than assumed away.
+
+The **death negative-control outcome** runs on its own clock. Death is
+ascertained from the RPDR demographics file and does not require a lab draw, so
+it is censored administratively at the pull date rather than at the last
+creatinine.
+
+## Two clocks
+
+The analysis is reported on both. On the **ICI clock** the exposed AKI rate
+exceeds the unexposed rate substantially. On the **PPI clock** — re-zeroed on
+each patient's own prescription date, looking backward as well as forward — risk
+in the week *before* the prescription is indistinguishable from the week after,
+and peaks on the prescription day itself. A drug cannot raise risk in the week
+before it is given, so that symmetry is the central object of the analysis and
+appears as the mirror-window figure.
+
+## Data privacy
+
+`EMPI`, `MRN`, names and dates of birth are used as local join keys only and
+never appear in any rendered output. `data_management.qmd` is not executed at
+render time — it reads RPDR extracts that stay local. `analysis.qmd` renders
+from `cache/qc.rds`, which is aggregate-only and asserted free of identifier
+columns before it is written. Cells below 11 are suppressed. Free-text RPDR
+fields (`Additional_Info`, `Result_Text`, `Specimen_Text`) are never read.
+
+## Data sources (local only, not in this repo)
+
+- `Final cohort/final_master_0114_raw.xlsx` — ICI-CKD analytic master (parent cohort)
+- RPDR `_Lab.txt` (909 MB) — serial creatinine, for the outcome and draw density
+- RPDR `_Med.txt` (2.3 GB) — PPI, H2RA, steroid and baseline medication exposures
+- RPDR pull date 2025-09-30
+
+`aki_0120.xlsx` is deliberately **not** used: it is the output of the AKI
+lookback bug.
+
+## Running it
+
+```r
+knitr::purl("data_management.qmd", output = "cache/data_management.R", documentation = 0)
+source("cache/data_management.R")   # builds cache/, ~1 min warm / ~5 min cold
+quarto::quarto_render()
+```
+
+## Dependencies
+
+`tidyverse`, `dplyr`, `tidyr`, `purrr`, `readxl`, `writexl`, `data.table`,
+`survival`, `broom`, `ggplot2`, `knitr`.

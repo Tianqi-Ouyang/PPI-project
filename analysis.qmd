@@ -1,0 +1,715 @@
+---
+title: "PPI → AKI after ICI — Analysis"
+subtitle: "Time-varying Cox models, 730-day horizon"
+author: "Tianqi Ouyang"
+date: "`r Sys.Date()`"
+execute:
+  eval: true
+  echo: true
+  warning: false
+  message: false
+---
+
+::: {.callout-note}
+## About this page
+
+Reads `cache/*.rds` built by [`data_management.qmd`](data_management.qmd) and
+renders **aggregate results only** — model coefficients, person-time totals and
+rates. No patient-level row reaches the output, and cells below 11 are
+suppressed. Helper functions come from [`R/ppi_functions.R`](R/ppi_functions.R).
+
+Follow-up horizon is **730 days (2 years)**. The two reference summaries were
+computed at 548 days, so nothing here reproduces them exactly.
+:::
+
+```{r}
+#| label: setup
+#| include: false
+suppressPackageStartupMessages({
+  library(dplyr); library(tidyr); library(purrr); library(stringr)
+  library(survival); library(broom); library(ggplot2); library(knitr)
+})
+source("R/ppi_functions.R")
+
+CACHE_OK <- all(file.exists(file.path("cache",
+  paste0(c("qc","pt","cp","cp_base","dens","model_vars","cfg"), ".rds"))))
+```
+
+```{r}
+#| label: load-cache
+#| include: false
+if (!CACHE_OK) knitr::knit_exit()
+
+QC         <- readRDS("cache/qc.rds")
+pt         <- readRDS("cache/pt.rds")
+cp         <- readRDS("cache/cp.rds")
+cp_base    <- readRDS("cache/cp_base.rds")
+dens       <- readRDS("cache/dens.rds")
+MODEL_VARS <- readRDS("cache/model_vars.rds")
+CFG        <- readRDS("cache/cfg.rds")
+
+## Shared model machinery -------------------------------------------------------
+ADJ <- paste(MODEL_VARS, collapse = " + ")
+
+#' Fit a counting-process Cox model and return the exponentiated terms of
+#' interest. na.action is set explicitly: bug A10(1) is that the default
+#' silently drops INTERVALS, not patients. Missingness was already resolved at
+#' the patient level in data_management.qmd §9, so na.fail is a real assertion
+#' rather than a formality.
+fit_cp <- function(data, rhs, keep = "^ppi", label = NA_character_,
+                   outcome = "Surv(tstart, tstop, event)") {
+  f <- stats::as.formula(paste(outcome, "~", rhs))
+  m <- coxph(f, data = data, na.action = stats::na.fail)
+  list(
+    label = label, model = m,
+    tidy = broom::tidy(m, exponentiate = TRUE, conf.int = TRUE) %>%
+      filter(grepl(keep, term)) %>%
+      transmute(model = label, term,
+                HR = estimate, lo = conf.low, hi = conf.high, p = p.value),
+    n_id = length(unique(data$id)), n_rows = nrow(data),
+    n_events = sum(data$event),
+    py = sum(data$tstop - data$tstart) / 365.25
+  )
+}
+
+hr_txt <- function(d) sprintf("%.2f (%.2f-%.2f)", d$HR, d$lo, d$hi)
+
+show_hr <- function(..., caption = NULL, digits = 3) {
+  bind_rows(lapply(list(...), `[[`, "tidy")) %>%
+    mutate(`HR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", HR, lo, hi),
+           p = ifelse(p < .001, "<0.001", sprintf("%.3f", p))) %>%
+    select(model, term, `HR (95% CI)`, p) %>%
+    kable(caption = caption)
+}
+```
+
+```{r}
+#| label: cohort-header
+#| echo: false
+#| output: asis
+i <- QC$initiators
+cat(sprintf(paste0(
+  "**Cohort** %s new-user patients · **%s** PPI initiators under observation ",
+  "· **%s** never · **%s** AKI events · %s person-years ",
+  "· median follow-up %s days · %s%% still under creatinine surveillance at 730 d\n\n"),
+  format(i$n_cohort, big.mark=","), format(i$n_initiator, big.mark=","),
+  format(i$n_never, big.mark=","), format(i$n_events, big.mark=","),
+  format(round(i$py), big.mark=","), i$median_fu, i$pct_followed_730))
+```
+
+---
+
+# 1 Cohort & person-time
+
+```{r}
+#| label: tbl-ledger
+#| echo: false
+kable(QC$ledger, caption = "CONSORT ledger. Every step executed and asserted in code (bug A13).")
+kable(QC$ppi_prev,
+      caption = paste0("PPI prevalence by definition, denominator ",
+                       format(QC$ppi_prev_denom, big.mark = ","),
+                       ". The unguarded med_list() reported 71.3% as baseline (bug A4)."))
+kable(QC$person_time, caption = "Person-time by time-varying exposure state")
+```
+
+## 1.1 The two initiator definitions (bug A11)
+
+The reference summaries used three initiator counts interchangeably — 2,951,
+3,058 and 3,341. The gap is the **observation window**: whether a PPI that
+arrives after the patient's follow-up has already ended still counts.
+
+```{r}
+#| label: tbl-initiator-defs
+#| echo: false
+tibble(
+  definition = c(
+    "Initiation while UNDER OBSERVATION  (model exposure, ppi_initiator)",
+    "Any post-ICI PPI within 730 d, ignoring follow-up end (ppi_ever_post)",
+    "Difference: PPI arrives after AKI / death / last creatinine"),
+  n = c(QC$initiators$n_initiator, QC$initiators$n_ever_post_full,
+        QC$initiators$n_ever_post_full - QC$initiators$n_initiator)
+) %>% kable(caption = "Both definitions are needed: the first drives every model, the second drives the mirror window and the immortal-time diagnostic.")
+```
+
+---
+
+# 2 The AKI outcome was repaired first (bug A1)
+
+`create_aki()` computed its KDIGO lookback windows **after** discarding every
+pre-ICI creatinine, so neither comparator could see a baseline value and AKI was
+structurally undetectable at each patient's first post-ICI draw. The table below
+is the same function run both ways on the same input.
+
+```{r}
+#| label: tbl-aki-fix
+#| echo: false
+f <- QC$aki_fix
+tibble::tribble(
+  ~Quantity,                                              ~Original, ~Fixed,
+  "Patients with AKI (parent cohort, ascertainable)",      f$n_aki_buggy, f$n_aki_fixed,
+  "Events in days 0-90 after ICI",                        f$n_events_d0_90_buggy, f$n_events_d0_90_fixed,
+  "Patients with aki_days == 1",                           f$n_day1_buggy, f$n_day1_fixed,
+  "Earliest detectable aki_days",                          f$min_day_buggy, f$min_day_fixed
+) %>% kable(caption = "Effect of the A1 fix. aki_days == 1 is impossible under the original ordering -- that is the bug's fingerprint, not biology.")
+
+tibble(
+  change = c("Gained an AKI", "Lost an AKI", "Kept AKI, date moved",
+             "Used pre_CRE_180days as KDIGO baseline"),
+  n = c(f$n_gained, f$n_lost, f$n_date_moved, f$n_fallback_patients)
+) %>% kable(caption = "Patient-level movement. Events can also be LOST: adding pre-ICI values to the 90-day window can raise the median and pull cre/median below 1.5.")
+```
+
+::: {.callout-warning}
+## This affects the published paper, not only this analysis
+The same broken ordering is in the ICI-CKD pipeline at `data_management.qmd:494`
+and in `Final cohort/aki.Rmd:82`, which produced `aki_0120.xlsx`. Any result
+built on that file has an undercounted AKI outcome, concentrated in the first
+90 days.
+:::
+
+---
+
+# 3 M0 — the naive time-fixed model, and why it is wrong
+
+Classifying a patient as "PPI-exposed" from day 0 because they started a PPI on
+day 120 credits 120 drug-free days to the drug (bug A5).
+
+```{r}
+#| label: tbl-immortal
+#| echo: false
+it <- QC$immortal_time
+tibble(
+  quantity = c("Naive 'ever initiated' exposed patients",
+               "Their AKI events",
+               "  ... occurring BEFORE the first PPI",
+               "  ... on the SAME DAY as the first PPI",
+               "  ... AFTER the first PPI",
+               "% of naive exposed person-days that precede the drug"),
+  value = c(it$n_naive_exposed, it$n_events_naive_exposed,
+            it$n_events_before_ppi, it$n_events_same_day,
+            it$n_events_after_ppi, it$pct_predrug_persondays)
+) %>% kable(caption = "Immortal time bias, measured. A model that calls these events 'exposed' is uninterpretable whichever way it errs.")
+```
+
+```{r}
+#| label: m0-naive
+naive_pt <- pt %>%
+  mutate(ppi_naive = ppi_ever_post) %>%
+  select(id = EMPI, fu_days, ev, ppi_naive, all_of(MODEL_VARS))
+
+m0 <- coxph(as.formula(paste("Surv(fu_days, ev) ~ ppi_naive +", ADJ)),
+            data = naive_pt, na.action = na.fail)
+M0 <- list(label = "M0 naive time-fixed",
+           tidy = broom::tidy(m0, exponentiate = TRUE, conf.int = TRUE) %>%
+             filter(term == "ppi_naive") %>%
+             transmute(model = "M0 naive time-fixed", term, HR = estimate,
+                       lo = conf.low, hi = conf.high, p = p.value))
+```
+
+::: {.callout-important}
+`ppi_naive` above uses `ppi_ever_post` — the full-record definition. Using the
+model's truncated `ppi_day` would make pre-PPI events impossible **by
+construction** and hide the very bias M0 exists to demonstrate.
+:::
+
+---
+
+# 4 M1-M4 — time-varying Cox
+
+One row per covariate interval; `Surv(tstart, tstop, event)` replaces
+`Surv(time, event)`. **M1 is the primary model as specified.** M4 adds the
+pre-specified 90-day induction period, with that person-time deleted from the
+risk set rather than reassigned to the comparator.
+
+```{r}
+#| label: m1-m4
+M1 <- fit_cp(cp$lag0,  paste("ppi +", ADJ),                      label = "M1 time-varying, lag 0")
+M2 <- fit_cp(cp$lag0,  paste("ppi + ster +", ADJ),               label = "M2 + time-varying steroid")
+M3 <- fit_cp(cp$lag0,  paste("ppi + ster + labdens +", ADJ),     label = "M3 + draw density")
+M4 <- fit_cp(cp$lag90, paste("ppi + ster + labdens +", ADJ),     label = "M4 + 90-day induction")
+
+show_hr(M1, M2, M3, M4, caption = "Primary time-varying models. Adjusted for age, sex, race, ICI year, DM, HTN, CAD, cirrhosis, diuretic, ACE/ARB, statin, smoking, baseline steroid, baseline eGFR/Hgb/albumin (+ missing indicators), 8 chemo flags, cancer group. esrd_kt omitted: constant zero by construction.")
+```
+
+```{r}
+#| label: tbl-steroid-term
+#| echo: false
+broom::tidy(M3$model, exponentiate = TRUE, conf.int = TRUE) %>%
+  filter(term %in% c("ppi", "ster", "labdens")) %>%
+  transmute(term, `HR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", estimate, conf.low, conf.high),
+            p = ifelse(p.value < .001, "<0.001", sprintf("%.3f", p.value))) %>%
+  kable(caption = "M3 terms of interest. The steroid and draw-density coefficients are themselves part of the argument (bugs A7, A8).")
+```
+
+## 4.1 Proportional hazards
+
+A PH violation is expected here and is informative rather than fatal: it is the
+same decaying hazard that §6 quantifies directly. The correct response is
+time-stratified estimates, not one number.
+
+```{r}
+#| label: cox-zph
+#| echo: false
+zph <- cox.zph(M3$model)
+as.data.frame(zph$table) %>%
+  tibble::rownames_to_column("term") %>%
+  filter(term %in% c("ppi", "ster", "labdens", "GLOBAL")) %>%
+  mutate(p = ifelse(p < .001, "<0.001", sprintf("%.3f", p))) %>%
+  select(term, chisq, df, p) %>%
+  kable(digits = 2, caption = "Schoenfeld residual test (cox.zph) on M3")
+```
+
+---
+
+# 5 M5 — the induction ladder
+
+Push the exposure start later and later, deleting the induction window from the
+risk set each time. A pharmacological effect would plateau.
+
+```{r}
+#| label: m5-ladder
+ladder <- purrr::imap_dfr(cp[paste0("lag", CFG$LAGS)], function(d, nm) {
+  lg <- as.integer(sub("lag", "", nm))
+  f  <- fit_cp(d, paste("ppi + ster + labdens +", ADJ),
+               label = sprintf("induction %d d", lg))
+  f$tidy %>% mutate(lag = lg, events = f$n_events, py = round(f$py))
+}) %>% arrange(lag)
+
+ladder %>%
+  transmute(`Induction period` = ifelse(lag == 0, "none (day 0)", paste(lag, "days")),
+            events, `person-years` = py,
+            `Adjusted HR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", HR, lo, hi)) %>%
+  kable(caption = "Every extra day of separation between the prescription and the risk window removes more of the effect.")
+```
+
+```{r}
+#| label: fig-ladder
+#| echo: false
+#| fig-height: 3.2
+#| fig-cap: "Induction ladder. Monotone decay with no plateau is not the signature of a drug effect."
+ggplot(ladder, aes(x = factor(lag), y = HR)) +
+  geom_hline(yintercept = 1, linetype = 2, colour = "grey40") +
+  geom_pointrange(aes(ymin = lo, ymax = hi), size = .7) +
+  scale_y_continuous(trans = "log", breaks = c(0.8,1,1.5,2,2.5,3)) +
+  labs(x = "Induction period (days)", y = "Adjusted HR for AKI (log scale)") +
+  theme_minimal(base_size = 12)
+```
+
+---
+
+# 6 M6 — hazard by time since initiation
+
+Split the exposed person-time by how long the patient has been on the drug.
+
+```{r}
+#| label: m6-bands
+BAND_CUTS <- c(0, 7, 30, 90, 365)
+band_base <- cp_base %>%
+  mutate(!!!setNames(
+    lapply(BAND_CUTS, function(k) quote(ppi_day)), paste0("d", BAND_CUTS)))
+for (k in BAND_CUTS) band_base[[paste0("d", k)]] <- band_base$ppi_day + k
+
+cp_band <- build_counting_process(
+  band_base,
+  switches = c(setNames(as.list(paste0("d", BAND_CUTS)), paste0("on", BAND_CUTS)),
+               list(ster = "ster_day")),
+  dens = dens
+)
+
+cp_band <- cp_band %>%
+  mutate(ppi_band = factor(
+    rowSums(across(all_of(paste0("on", BAND_CUTS)))),
+    levels = 0:5,
+    labels = c("unexposed", "day 0-7", "day 8-30", "day 31-90",
+               "day 91-365", "beyond 1 year")))
+
+M6 <- fit_cp(cp_band, paste("ppi_band + ster + labdens +", ADJ),
+             keep = "^ppi_band", label = "M6 AKI")
+```
+
+```{r}
+#| label: m6-death
+## Same banding on the death clock -- the negative-control outcome (M7).
+band_death <- cp$death %>% select(id) %>% distinct()
+bd_base <- pt %>%
+  transmute(id = EMPI, fu_days = fu_days_death, ev = ev_death,
+            ppi_day = if_else(!is.na(ppi_day_full) & ppi_day_full <= fu_days_death,
+                              ppi_day_full, NA_real_),
+            ster_day = as.numeric(ster_first_post_date - ICI_Dose_Date)) %>%
+  mutate(ster_day = if_else(!is.na(ster_day) & ster_day <= fu_days, ster_day, NA_real_)) %>%
+  bind_cols(pt %>% select(all_of(MODEL_VARS)))
+for (k in BAND_CUTS) bd_base[[paste0("d", k)]] <- bd_base$ppi_day + k
+
+cp_band_death <- build_counting_process(
+  bd_base,
+  switches = c(setNames(as.list(paste0("d", BAND_CUTS)), paste0("on", BAND_CUTS)),
+               list(ster = "ster_day")),
+  dens = dens
+) %>%
+  mutate(ppi_band = factor(rowSums(across(all_of(paste0("on", BAND_CUTS)))),
+                           levels = 0:5,
+                           labels = c("unexposed","day 0-7","day 8-30","day 31-90",
+                                      "day 91-365","beyond 1 year")))
+
+M7 <- fit_cp(cp_band_death, paste("ppi_band + ster + labdens +", ADJ),
+             keep = "^ppi_band", label = "M7 death")
+```
+
+```{r}
+#| label: tbl-bands
+#| echo: false
+rates <- cp_band %>%
+  group_by(ppi_band) %>%
+  summarise(py = sum(tstop - tstart) / 365.25, n = sum(event), .groups = "drop") %>%
+  mutate(`AKI /100py` = round(100 * n / py, 1),
+         py = round(py), events = suppress_small_cells(n, CFG$SMALL_CELL)) %>%
+  select(ppi_band, `person-yrs` = py, events, `AKI /100py`)
+
+aki_hr <- M6$tidy %>% mutate(ppi_band = sub("^ppi_band", "", term)) %>%
+  transmute(ppi_band, `AKI HR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", HR, lo, hi))
+dth_hr <- M7$tidy %>% mutate(ppi_band = sub("^ppi_band", "", term)) %>%
+  transmute(ppi_band, `Death HR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", HR, lo, hi))
+
+rates %>%
+  left_join(aki_hr, by = "ppi_band") %>%
+  left_join(dth_hr, by = "ppi_band") %>%
+  mutate(across(everything(), ~ tidyr::replace_na(as.character(.), "1.00 (ref)"))) %>%
+  kable(caption = "Hazard by time since first PPI, with death as a co-primary negative control. Creatinine sampling can manufacture an AKI; it cannot manufacture a death.")
+```
+
+::: {.callout-note}
+## What to read off this table
+Two things. First, whether the AKI hazard under **continuing** exposure decays
+toward the unexposed reference — a nephrotoxin does not get safer the longer it
+is taken. Second, whether the **death** hazard exceeds the AKI hazard in the
+same person-time — an exposure that raises all-cause mortality more than it
+raises kidney injury is a severity marker, not a nephrotoxin.
+:::
+
+---
+
+# 7 The mirror window (bug A6)
+
+The decisive descriptive object. AKI rate by day **relative to the first PPI**,
+looking backward as well as forward. If a PPI caused AKI, risk would be flat
+before the prescription and raised after.
+
+```{r}
+#| label: tbl-mirror
+#| echo: false
+QC$mirror %>%
+  transmute(Band = band, `person-days` = person_days,
+            events = events_shown, `AKI /1,000 person-days` = rate_per_1000_pd) %>%
+  kable(caption = paste0("Among ", format(QC$mirror_n_patients, big.mark=","),
+    " patients with a post-ICI PPI. Computed on the REPAIRED AKI outcome and on ",
+    "full-record dates; using follow-up-truncated dates would force every ",
+    "pre-prescription band to zero."))
+```
+
+```{r}
+#| label: fig-mirror
+#| echo: false
+#| fig-height: 4.2
+#| fig-cap: "Mirror window. A drug cannot raise risk in the week before it is given, so a symmetric spike centred on day 0 indicates that the PPI order and the creatinine rise are two readouts of one acute care episode."
+QC$mirror %>%
+  mutate(side = case_when(hi < 0 ~ "before the prescription",
+                          lo > 0 ~ "after the prescription",
+                          TRUE   ~ "prescription day")) %>%
+  ggplot(aes(band, rate_per_1000_pd, fill = side)) +
+  geom_col() +
+  geom_text(aes(label = sprintf("%.2f", rate_per_1000_pd)), vjust = -0.4, size = 3.1) +
+  scale_fill_manual(values = c("before the prescription" = "#3E9695",
+                               "prescription day"        = "#B84A34",
+                               "after the prescription"  = "#C8862A")) +
+  labs(x = "Days relative to first post-ICI PPI", y = "AKI per 1,000 person-days",
+       fill = NULL) +
+  expand_limits(y = max(QC$mirror$rate_per_1000_pd) * 1.12) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+```{r}
+#| label: mirror-symmetry
+#| echo: false
+#| output: asis
+w_before <- QC$mirror$rate_per_1000_pd[QC$mirror$band == "-7..-1"]
+w_after  <- QC$mirror$rate_per_1000_pd[QC$mirror$band == "+1..+7"]
+d0       <- QC$mirror$rate_per_1000_pd[QC$mirror$band == "day 0"]
+cat(sprintf(paste0("Week **before** the prescription: **%.2f** per 1,000 person-days. ",
+  "Week **after**: **%.2f**. Ratio before/after: **%.2f**. ",
+  "Prescription day itself: **%.2f**.\n\n"), w_before, w_after, w_before/w_after, d0))
+```
+
+---
+
+# 8 M8 — H2-blocker active comparator
+
+H2RAs treat the same indication, arrive in the same acute encounters, and lack
+the interstitial-nephritis mechanism. A null PPI-vs-H2RA contrast is the
+cleanest confirmation that the signal is the encounter rather than the pill.
+
+```{r}
+#| label: m8-h2ra
+h2_base <- cp_base %>%
+  left_join(pt %>% select(id = EMPI, h2ra_day2 = h2ra_day, h2ra_pre), by = "id") %>%
+  filter(h2ra_pre == 0)          # new user of BOTH classes
+
+cp_h2 <- build_counting_process(
+  h2_base, switches = list(ppi = "ppi_day", h2ra = "h2ra_day2", ster = "ster_day"),
+  dens = dens)
+
+M8 <- fit_cp(cp_h2, paste("ppi + h2ra + ster + labdens +", ADJ),
+             keep = "^(ppi|h2ra)$", label = "M8 PPI vs H2RA")
+show_hr(M8, caption = "Both exposures time-varying in one model, among patients with neither drug at baseline. The PPI-versus-H2RA contrast is the ratio of the two HRs.")
+```
+
+```{r}
+#| label: m8-contrast
+#| echo: false
+#| output: asis
+cf <- coef(M8$model); V <- vcov(M8$model)
+if (all(c("ppi","h2ra") %in% names(cf))) {
+  d  <- cf["ppi"] - cf["h2ra"]
+  se <- sqrt(V["ppi","ppi"] + V["h2ra","h2ra"] - 2*V["ppi","h2ra"])
+  cat(sprintf(paste0("**PPI versus H2RA** (ratio of hazard ratios): ",
+    "**%.2f (%.2f-%.2f)**, Wald p = %s. New H2RA users available: %s.\n\n"),
+    exp(d), exp(d-1.96*se), exp(d+1.96*se),
+    ifelse(2*pnorm(-abs(d/se)) < .001, "<0.001", sprintf("%.3f", 2*pnorm(-abs(d/se)))),
+    format(QC$initiators$n_h2ra_new_730, big.mark = ",")))
+}
+```
+
+---
+
+# 9 M9 — steroid initiation as a negative-control *exposure*
+
+Among **never-PPI** patients, does starting a steroid reproduce the same decay
+curve? If it does, the shape is a property of "a new drug was ordered", not of
+PPI (bug A7).
+
+```{r}
+#| label: m9-steroid-nce
+nce_base <- cp_base %>% filter(is.na(ppi_day))     # never-PPI only
+nce <- purrr::map_dfr(c(0, 7, 30), function(lg) {
+  d <- build_counting_process(nce_base, switches = list(ster = "ster_day"),
+                              lag_days = lg, lag_on = if (lg > 0) "ster" else NULL,
+                              dens = dens)
+  fit_cp(d, paste("ster + labdens +", ADJ), keep = "^ster$",
+         label = sprintf("steroid, induction %d d", lg))$tidy
+})
+nce %>% transmute(model, `HR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", HR, lo, hi),
+                  p = ifelse(p < .001, "<0.001", sprintf("%.3f", p))) %>%
+  kable(caption = "Steroid initiation in never-PPI patients. A decay curve of the same shape means the pattern belongs to new-prescription timing, not to PPI.")
+```
+
+---
+
+# 10 M11 — landmark analyses
+
+A different estimator, not merely a different lag. At each landmark, restrict to
+patients still at risk, fix exposure as *initiated by the landmark*, and follow
+forward from there.
+
+```{r}
+#| label: m11-landmark
+landmark <- purrr::map_dfr(c(90, 180, 365), function(L) {
+  d <- pt %>%
+    filter(fu_days > L) %>%
+    mutate(exposed_by_L = as.integer(!is.na(ppi_day_full) & ppi_day_full <= L),
+           t_start = 0, t_stop = fu_days - L, evL = ev)
+  m <- coxph(as.formula(paste("Surv(t_stop, evL) ~ exposed_by_L +", ADJ)),
+             data = d, na.action = na.fail)
+  broom::tidy(m, exponentiate = TRUE, conf.int = TRUE) %>%
+    filter(term == "exposed_by_L") %>%
+    transmute(landmark = paste(L, "days"), n = nrow(d), events = sum(d$evL),
+              `HR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", estimate, conf.low, conf.high),
+              p = ifelse(p.value < .001, "<0.001", sprintf("%.3f", p.value)))
+})
+kable(landmark, caption = "Landmark designs at 90 / 180 / 365 days.")
+```
+
+---
+
+# 11 M10 — Fine-Gray with death as a competing risk
+
+Initiators die more often than non-initiators, so a reviewer will ask.
+
+Fine-Gray with a genuinely time-varying exposure is not well defined — the
+subdistribution hazard is specified over a risk set that retains patients after
+the competing event, so a covariate that switches during follow-up has no
+consistent value there. Exposure is therefore fixed at the **90-day landmark**,
+which is the estimator a reviewer expects and which stays interpretable.
+
+```{r}
+#| label: m10-finegray
+L <- 90
+fg_dat <- pt %>%
+  filter(fu_days > L) %>%
+  mutate(
+    exposed_by_L = as.integer(!is.na(ppi_day_full) & ppi_day_full <= L),
+    t   = pmin(fu_days, fu_days_death) - L,
+    cr  = factor(case_when(ev == 1       ~ "aki",
+                           ev_death == 1 ~ "death",
+                           TRUE          ~ "censor"),
+                 levels = c("censor", "aki", "death"))
+  ) %>%
+  filter(t > 0)
+
+fg <- finegray(Surv(t, cr) ~ ., data = fg_dat, etype = "aki")
+M10 <- coxph(as.formula(paste("Surv(fgstart, fgstop, fgstatus) ~ exposed_by_L +", ADJ)),
+             data = fg, weights = fgwt, na.action = na.fail)
+
+broom::tidy(M10, exponentiate = TRUE, conf.int = TRUE) %>%
+  filter(term == "exposed_by_L") %>%
+  transmute(model = "M10 Fine-Gray (90-d landmark exposure)",
+            `sHR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", estimate, conf.low, conf.high),
+            p = ifelse(p.value < .001, "<0.001", sprintf("%.3f", p.value))) %>%
+  kable(caption = "Subdistribution hazard for AKI with death as the competing event.")
+```
+
+```{r}
+#| label: tbl-mortality
+#| echo: false
+pt %>%
+  group_by(`PPI initiator` = ifelse(ppi_initiator == 1, "yes", "no")) %>%
+  summarise(n = dplyr::n(), deaths = sum(ev_death),
+            `% dead by 730 d` = round(100 * mean(ev_death), 1), .groups = "drop") %>%
+  kable(caption = "Mortality by initiator status. The imbalance is why the competing-risk analysis is asked for, and part of why the exposure reads as a severity marker.")
+```
+
+---
+
+# 12 M12 — outpatient-only initiators
+
+One PPI order means "exposed forever", and inpatient IV pantoprazole is not
+outpatient oral maintenance. `Route` is absent from this RPDR extract, but
+`Inpatient_Outpatient` is present, so care setting can be modelled (bug A9).
+
+```{r}
+#| label: m12-outpatient
+op_base <- cp_base %>% mutate(ppi_day = ppi_op_day)
+cp_op <- build_counting_process(op_base, switches = list(ppi = "ppi_day", ster = "ster_day"),
+                                dens = dens)
+M12 <- fit_cp(cp_op, paste("ppi + ster + labdens +", ADJ),
+              label = "M12 outpatient-only initiators")
+show_hr(M12, caption = "Initiation defined only by a record flagged outpatient.")
+```
+
+```{r}
+#| label: tbl-exposure-limits
+#| echo: false
+pt %>% filter(ppi_ever_post == 1) %>%
+  summarise(
+    `Initiators (full record)`      = dplyr::n(),
+    `With an outpatient record`     = sum(!is.na(ppi_op_day)),
+    `Single PPI record in follow-up`= sum(ppi_n_records == 1, na.rm = TRUE),
+    `% single record`               = round(100 * mean(ppi_n_records == 1, na.rm = TRUE), 1)
+  ) %>% t() %>% as.data.frame() %>% tibble::rownames_to_column(" ") %>%
+  setNames(c(" ", "value")) %>%
+  kable(caption = "Exposure resolution limits. Record count is NOT reported as dose-response (bug A9): in person-time strictly before any PPI, AKI incidence already rises with the number of records the patient will LATER accumulate, and a future prescription cannot cause a past AKI.")
+```
+
+---
+
+# 13 All models together
+
+```{r}
+#| label: tbl-summary
+#| echo: false
+bind_rows(
+  M0$tidy,
+  M1$tidy, M2$tidy, M3$tidy, M4$tidy,
+  ladder %>% filter(lag %in% c(30, 180)) %>%
+    mutate(model = paste0("M5 induction ", lag, " d")) %>% select(names(M1$tidy)),
+  M12$tidy
+) %>%
+  filter(term %in% c("ppi", "ppi_naive")) %>%
+  transmute(Model = model, `HR for AKI (95% CI)` = sprintf("%.2f (%.2f-%.2f)", HR, lo, hi),
+            p = ifelse(p < .001, "<0.001", sprintf("%.3f", p))) %>%
+  kable(caption = "Every model, same 8,911 patients and same repaired AKI outcome; only the handling of time changes.")
+```
+
+```{r}
+#| label: fig-forest
+#| echo: false
+#| fig-height: 3.6
+#| fig-cap: "The more the prescription is separated from the risk window, the more the association disappears, and it never plateaus."
+bind_rows(M0$tidy, M1$tidy, M2$tidy, M3$tidy, M4$tidy, M12$tidy) %>%
+  filter(term %in% c("ppi", "ppi_naive")) %>%
+  mutate(model = factor(model, levels = rev(model))) %>%
+  ggplot(aes(HR, model)) +
+  geom_vline(xintercept = 1, linetype = 2, colour = "grey40") +
+  geom_pointrange(aes(xmin = lo, xmax = hi)) +
+  scale_x_continuous(trans = "log", breaks = c(0.8,1,1.5,2,2.5,3,4)) +
+  labs(x = "Hazard ratio for AKI (log scale)", y = NULL) +
+  theme_minimal(base_size = 11)
+```
+
+---
+
+# 14 Interpretation
+
+```{r}
+#| label: conclusion
+#| echo: false
+#| output: asis
+p_hr <- M1$tidy; i_hr <- M4$tidy
+b <- M6$tidy %>% filter(grepl("beyond", term))
+dth <- M7$tidy %>% filter(grepl("91-365", term))
+aki365 <- M6$tidy %>% filter(grepl("91-365", term))
+cat(sprintf(paste0(
+"- **M1, the specified primary time-varying model:** HR %s.\n",
+"- **M4, with a 90-day induction period:** HR %s.\n",
+"- **Beyond one year of continuing PPI:** HR %s for AKI.\n",
+"- **Same person-time, days 91-365:** AKI HR %s versus **death** HR %s.\n",
+"- **Mirror window:** %.2f per 1,000 person-days in the week before the ",
+"prescription against %.2f in the week after (ratio %.2f), peaking at %.2f on ",
+"the prescription day itself.\n\n"),
+hr_txt(p_hr), hr_txt(i_hr), hr_txt(b), hr_txt(aki365), hr_txt(dth),
+QC$mirror$rate_per_1000_pd[QC$mirror$band == "-7..-1"],
+QC$mirror$rate_per_1000_pd[QC$mirror$band == "+1..+7"],
+QC$mirror$rate_per_1000_pd[QC$mirror$band == "-7..-1"] /
+  QC$mirror$rate_per_1000_pd[QC$mirror$band == "+1..+7"],
+QC$mirror$rate_per_1000_pd[QC$mirror$band == "day 0"]))
+```
+
+::: {.callout-important}
+## Limitations that must appear in any write-up
+
+- KDIGO AKI requires a prior creatinine in the lookback window, so measured
+  incidence is a joint function of injury and draw frequency. Initiators are
+  drawn more often than non-initiators (see §1 and the `labdens` term in §4).
+- **`Route` is not in this RPDR extract**, so inpatient prophylaxis cannot be
+  fully separated from outpatient maintenance. Care setting is modelled in M12;
+  route is not available without a new data request.
+- No drug duration: exposure persists after a single order, and a substantial
+  share of initiators have one record in follow-up (§12).
+- Only `r QC$initiators$pct_followed_730`% of the cohort remains under
+  creatinine surveillance at 730 days, so informative censoring is the dominant
+  threat at this horizon — more so than at the 548 days used in the reference
+  summaries.
+- The parent cohort inherits `smoking` from the ICI-CKD master, which was
+  derived with **no date restriction** and may include post-ICI diagnoses. It is
+  adjusted for as `smoking_ever` and is not a baseline covariate.
+:::
+
+## Analyses deliberately not run
+
+- **Excluding patients whose AKI preceded their PPI** — selection on a
+  post-baseline outcome, which inflates the estimate.
+- **Record count as dose-response** — AKI incidence rises with *future* record
+  count in pre-exposure person-time, so it measures illness, not dose.
+- **Censoring at `last_cre_days + 90`** — invents surveillance that did not occur.
+- **Restricting the cohort to patients with a full 2 years of follow-up** — this
+  would discard most of the cohort and select on survival, which is downstream
+  of the exposure. Survival analysis does not require complete follow-up.
+
+```{r}
+#| label: session
+#| echo: false
+#| output: asis
+cat("\n\n---\n\n*Built from `cache/qc.rds` created ",
+    format(QC$built_at, "%Y-%m-%d %H:%M"),
+    ". Aggregate results only; cells below ", CFG$SMALL_CELL, " suppressed.*\n", sep = "")
+```
