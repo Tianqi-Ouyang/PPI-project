@@ -21,7 +21,8 @@ output; cells below 11 are suppressed. Follow-up horizon is 730 days.
 #| label: setup
 #| include: false
 suppressPackageStartupMessages({
-  library(dplyr); library(survival); library(broom); library(ggplot2); library(knitr)
+  library(dplyr); library(survival); library(broom)
+  library(gtsummary); library(ggplot2); library(knitr)
 })
 source("R/ppi_functions.R")
 have <- all(file.exists(file.path("cache", paste0(c("qc","pt","cp","cfg"), ".rds"))))
@@ -35,6 +36,16 @@ QC  <- readRDS("cache/qc.rds")
 pt  <- readRDS("cache/pt.rds")
 cp  <- readRDS("cache/cp.rds")
 CFG <- readRDS("cache/cfg.rds")
+
+## Human-readable factor labels used by both tables. dm/htn/male are stored 0/1.
+label_covars <- function(df) {
+  df %>% mutate(
+    Sex          = factor(if_else(male == 1, "Male", "Female"), c("Female", "Male")),
+    Race         = factor(Race, c("White", "Black", "Asian", "Other/Unknown")),
+    Diabetes     = factor(if_else(dm == 1, "Yes", "No"), c("No", "Yes")),
+    Hypertension = factor(if_else(htn == 1, "Yes", "No"), c("No", "Yes"))
+  )
+}
 ```
 
 ```{r}
@@ -42,9 +53,13 @@ CFG <- readRDS("cache/cfg.rds")
 #| echo: false
 #| output: asis
 c0 <- QC$cohort
+## Keep this ASCII only. An R cat()/sprintf() under a non-UTF-8 render locale
+## turns any multibyte character (e.g. a middot separator) into a literal
+## "<U+00B7>" in the output, so no such characters are used here.
 cat(sprintf(paste0(
-  "**%s** patients · **%s** start a PPI during follow-up · **%s** never do · ",
-  "**%s** AKI events · %s person-years · median follow-up %s days.\n\n"),
+  "The cohort is **%s** new-user patients. **%s** start a PPI during follow-up ",
+  "and **%s** never do. There are **%s** AKI events over %s person-years; ",
+  "median follow-up is **%s** days.\n\n"),
   format(c0$n, big.mark=","), format(c0$ppi_initiators, big.mark=","),
   format(c0$never_ppi, big.mark=","), format(c0$aki_events, big.mark=","),
   format(c0$person_years, big.mark=","), c0$median_fu_days))
@@ -52,49 +67,118 @@ cat(sprintf(paste0(
 
 # 1 Cohort
 
+**How the 8,911 analytic cohort is reached:**
+
 ```{r}
-#| label: tbl-cohort
+#| label: tbl-ledger
 #| echo: false
-kable(QC$ledger, caption = "How the 8,911 analytic cohort is reached.")
-kable(QC$person_time,
-      caption = "Person-time and crude AKI rate by time-varying PPI state.")
+kable(QC$ledger)
 ```
 
-# 2 Time-varying Cox model
-
-Every patient is unexposed at ICI start and becomes exposed only from the day
-they fill a PPI, so their pre-PPI follow-up counts as unexposed person-time.
-The model is `Surv(tstart, tstop, AKI) ~ PPI`.
+**Person-time and crude AKI rate by time-varying PPI state:**
 
 ```{r}
-#| label: cox
-m_crude <- coxph(Surv(tstart, tstop, event) ~ ppi, data = cp)
+#| label: tbl-person-time
+#| echo: false
+kable(QC$person_time)
+```
 
-m_adj   <- coxph(Surv(tstart, tstop, event) ~ ppi +
-                   age_ici + male + Race + dm + htn + eGFR_CRE_baseline, data = cp)
+# 2 Table 1 — baseline characteristics
 
+Baseline covariates for the whole cohort and by whether the patient starts a PPI
+during follow-up. PPI initiation is **time-varying** in the model; this split is
+descriptive only (it groups patients by an exposure that, for initiators, is
+acquired after baseline). Continuous variables are mean (SD); categorical are
+n (%).
+
+```{r}
+#| label: table1
+#| echo: false
+t1_data <- pt %>%
+  label_covars() %>%
+  transmute(
+    `PPI during follow-up` = factor(if_else(ppi_initiator == 1, "Started PPI", "Never PPI"),
+                                    c("Never PPI", "Started PPI")),
+    `Age at ICI start, years`        = age_ici,
+    Sex, Race, Diabetes, Hypertension,
+    `Baseline eGFR, mL/min/1.73 m2`  = eGFR_CRE_baseline
+  )
+
+tbl_summary(
+  t1_data,
+  by = `PPI during follow-up`,
+  statistic = list(all_continuous() ~ "{mean} ({sd})",
+                   all_categorical() ~ "{n} ({p}%)"),
+  digits = all_continuous() ~ 1
+) %>%
+  add_overall(last = FALSE) %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_caption("**Table 1. Baseline characteristics of the 8,911 new-user cohort.**")
+```
+
+# 3 Time-varying Cox model
+
+Every patient is unexposed at ICI start and becomes exposed only from the day
+they fill a PPI, so pre-PPI follow-up counts as unexposed person-time. The model
+is `Surv(tstart, tstop, AKI) ~ PPI (+ covariates)`.
+
+```{r}
+#| label: cox-fit
+#| echo: false
+cp_lab <- cp %>%
+  label_covars() %>%
+  mutate(PPI = factor(if_else(ppi == 1, "On PPI", "Not on PPI"), c("Not on PPI", "On PPI")))
+
+m_crude <- coxph(Surv(tstart, tstop, event) ~ PPI, data = cp_lab)
+m_adj   <- coxph(Surv(tstart, tstop, event) ~ PPI + age_ici + Sex + Race +
+                   Diabetes + Hypertension + eGFR_CRE_baseline, data = cp_lab)
+
+n_pt <- dplyr::n_distinct(cp_lab$id); n_ev <- sum(cp_lab$event)
+```
+
+**The PPI effect (On PPI vs Not on PPI), unadjusted and adjusted:**
+
+```{r}
+#| label: tbl-ppi-effect
+#| echo: false
 bind_rows(
   broom::tidy(m_crude, exponentiate = TRUE, conf.int = TRUE) %>%
-    filter(term == "ppi") %>% mutate(model = "Crude"),
+    filter(grepl("PPI", term)) %>% mutate(model = "Unadjusted"),
   broom::tidy(m_adj, exponentiate = TRUE, conf.int = TRUE) %>%
-    filter(term == "ppi") %>% mutate(model = "Adjusted*")
+    filter(grepl("PPI", term)) %>% mutate(model = "Adjusted")
 ) %>%
   transmute(Model = model,
             `HR for AKI (95% CI)` = sprintf("%.2f (%.2f-%.2f)", estimate, conf.low, conf.high),
             p = ifelse(p.value < .001, "<0.001", sprintf("%.3f", p.value))) %>%
-  kable(caption = "Time-varying PPI and AKI. *Adjusted for age, sex, race, diabetes, hypertension, baseline eGFR.")
+  kable()
+```
+
+Full adjusted model — every covariate:
+
+```{r}
+#| label: tbl-cox-full
+#| echo: false
+tbl_regression(m_adj, exponentiate = TRUE,
+               label = list(age_ici ~ "Age at ICI start (per year)",
+                            eGFR_CRE_baseline ~ "Baseline eGFR (per mL/min/1.73 m2)")) %>%
+  modify_header(estimate ~ "**HR**") %>%
+  modify_caption(sprintf(
+    "**Table 2. Multivariable time-varying Cox model for AKI.** %s patients, %s AKI events over %s person-years.",
+    format(n_pt, big.mark = ","), format(n_ev, big.mark = ","),
+    format(QC$cohort$person_years, big.mark = ",")))
 ```
 
 ```{r}
 #| label: ph-check
 #| echo: false
-z <- cox.zph(m_adj)
-zt <- as.data.frame(z$table)["ppi", , drop = FALSE]
+#| output: asis
+z  <- cox.zph(m_adj)
+zt <- as.data.frame(z$table)["PPI", , drop = FALSE]
 cat(sprintf("_Proportional-hazards check for the PPI term (cox.zph): p = %s._\n\n",
             ifelse(zt$p < .001, "<0.001", sprintf("%.3f", zt$p))))
 ```
 
-# 3 Cumulative incidence of AKI
+# 4 Cumulative incidence of AKI
 
 Cumulative incidence of AKI over two years for the whole cohort (death and end
 of creatinine follow-up treated as censoring).
@@ -108,8 +192,7 @@ km <- survfit(Surv(fu_days, ev) ~ 1, data = pt)
 data.frame(time = km$time, ci = 1 - km$surv) |>
   ggplot(aes(time, ci)) +
   geom_step(color = "#0B6E6D", linewidth = 0.9) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1),
-                     limits = c(0, NA)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, NA)) +
   labs(x = "Days since ICI start", y = "Cumulative incidence of AKI") +
   theme_minimal(base_size = 12)
 ```
