@@ -5,7 +5,6 @@ project:
     - index.qmd
     - data_management.qmd
     - analysis.qmd
-    - PPI_ANALYSIS_PLAN.md
 
 website:
   title: "PPI → AKI after ICI"
@@ -14,8 +13,6 @@ website:
     left:
       - href: index.qmd
         text: Overview
-      - href: PPI_ANALYSIS_PLAN.md
-        text: Plan & Bug Audit
       - href: data_management.qmd
         text: Data Management
       - href: analysis.qmd

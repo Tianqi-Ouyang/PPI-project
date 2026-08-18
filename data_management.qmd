@@ -1,6 +1,6 @@
 ---
 title: "PPI → AKI after ICI — Data Management"
-subtitle: "New-user cohort, time-varying exposure, 730-day horizon"
+subtitle: "New-user cohort, time-varying PPI exposure, 730-day horizon"
 author: "Tianqi Ouyang"
 date: "`r Sys.Date()`"
 execute:
@@ -12,881 +12,231 @@ execute:
 ::: {.callout-note}
 ## About this page
 
-This page is the **executable specification** of the PPI data-management
-pipeline. Chunks are not run at render time — they read RPDR extracts and
-patient-level data, which stay local. To run it:
+Executable specification of the pipeline. Chunks are not run at render time —
+they read RPDR extracts that stay local. To run:
 
 ```r
 knitr::purl("data_management.qmd", output = "cache/data_management.R", documentation = 0)
 source("cache/data_management.R")
 ```
 
-That is the only way the pipeline is executed. There is no second copy of any
-function anywhere in this project — duplicate definitions of `create_aki()`
-across `aki.Rmd` and the ICI-CKD `data_management.qmd` are the direct cause of
-bug **A2** in [`PPI_ANALYSIS_PLAN.md`](PPI_ANALYSIS_PLAN.md), where the two
-copies silently disagreed at the KDIGO boundary. All shared helpers live in
-[`R/ppi_functions.R`](R/ppi_functions.R) and are sourced by both `.qmd` files.
-
-Outputs land in `cache/` (gitignored). The aggregate QC object `cache/qc.rds`
-is what [`analysis.qmd`](analysis.qmd) and the summary tables on this site read.
+Helpers live in [`R/ppi_functions.R`](R/ppi_functions.R). Outputs land in
+`cache/` (gitignored); the aggregate `cache/qc.rds` is what
+[`analysis.qmd`](analysis.qmd) renders from.
 :::
 
-::: {.callout-important}
-## Departures from the two reference summaries
+The analysis has four pieces:
 
-1. **Horizon is 730 days (2 years), not 548.** Every count, person-year total
-   and hazard ratio in the reference artifacts was computed at 18 months and
-   will not reproduce here. Those numbers are used only as targets to check
-   against.
-2. **The AKI outcome is re-derived.** `aki_0120.xlsx` is the output of bug
-   **A1** and is not used. §7 quantifies exactly how many events move.
-3. **`Route` is not available.** The RPDR Med extract has
-   `Inpatient_Outpatient` but no route column, so inpatient-versus-outpatient
-   setting is modelled and route is not. See **A9**.
-:::
-
-# 1 Variable dictionary
-
-Only variables that are **new to this project** or **renamed** are listed.
-Everything inherited unchanged from the ICI-CKD master is documented on that
-project's site.
-
-## 1.1 Exposure — PPI
-
-| In code | Description |
-|---|---|
-| `ppi_pre` | 1 if any PPI dispensing on **or before** `ICI_Dose_Date`. **Cohort exclusion.** Re-derived from RPDR Med with the date guard applied structurally — *not* read from the master's `ppi` column, which is the bug-A4 "ever in extract" flag |
-| `ppi_first_post_date` | First PPI dispensing **strictly after** `ICI_Dose_Date`, over the full 0-730 d window |
-| `ppi_day` | `ppi_first_post_date − ICI_Dose_Date`, in days. The switch time for the time-varying covariate |
-| `ppi_n_records` | Count of PPI records in follow-up. **Descriptive only — never a dose-response variable (A9)** |
-| `ppi_first_outpatient_day` | Switch time restricted to records flagged outpatient (sensitivity M12) |
-| `ppi_initiator` | 1 if `ppi_day` is non-missing and ≤ the patient's follow-up end |
-
-## 1.2 Comparator & negative-control exposures
-
-| In code | Description |
-|---|---|
-| `h2ra_pre`, `h2ra_day` | Same construction for H2-receptor antagonists — the active comparator (M8) |
-| `ster_pre` | Systemic steroid on/before ICI (baseline covariate) |
-| `ster_day` | First systemic steroid after ICI — time-varying confounder (A7) and negative-control exposure (M9) |
-
-## 1.3 Outcome — AKI (re-derived; see §7)
-
-| In code | Description |
-|---|---|
-| `aki` | 1 if any post-ICI creatinine meets KDIGO rule 1 (`cre / median_90d_prior ≥ 1.5`) or rule 2 (`cre − min_2d_prior ≥ 0.3`). Comparators computed on the **full** creatinine series (**A1 fix**) |
-| `aki_date`, `aki_days` | Date and days-from-ICI of the first qualifying creatinine |
-| `aki_ascertainable` | `FALSE` when a patient has no post-ICI creatinine. Kept as `NA`, never zero-filled — "no record" is not "no event" |
-| `n_fallback_used` | Draws where the rolling window was empty and `pre_CRE_180days` supplied the KDIGO baseline |
-
-## 1.4 Time-varying monitoring intensity (A8)
-
-| In code | Description |
-|---|---|
-| `labdens` | Count of creatinine draws in the prior 90 days, evaluated on a 30-day grid. Replaces `lab_num_*year`, which counts a fixed window, is a survivorship variable, and is all-`NA` at years 9-10 |
-
-## 1.5 Follow-up & counting process
-
-| In code | Description |
-|---|---|
-| `fu_days` | `min(aki_days, last_cre_days, death_days, 730)` |
-| `ev` | 1 if AKI is the reason follow-up ended |
-| `tstart`, `tstop` | Interval bounds, one row per covariate change |
-| `cp_lag0` … `cp_lag180` | Counting-process frames at induction lags 0 / 30 / 90 / 180 days |
+1. **Cohort** — the 8,911 patients with no PPI at or before ICI start and at
+   least one creatinine afterwards.
+2. **Outcome** — AKI, computed from each patient's serial creatinine **after**
+   the ICI start date.
+3. **Exposure** — PPI, **time-varying**. Every patient is unexposed at ICI start
+   (day 0); a patient who fills a PPI on day *k* becomes exposed from day *k*.
+4. **Follow-up** — to the earliest of AKI, last creatinine, death, or 730 days.
 
 ---
 
-# 2 Setup
+# 1 Setup
 
 ```{r}
 #| label: libraries
 suppressPackageStartupMessages({
-  library(readxl); library(writexl)
-  library(dplyr);  library(tidyr); library(purrr); library(stringr)
-  library(data.table)
-  library(survival)
-  library(ggplot2)
+  library(readxl); library(dplyr); library(tidyr); library(data.table); library(survival)
 })
-
-## Single source of truth for every helper in this project.
 source("R/ppi_functions.R")
 ```
 
 ```{r}
 #| label: config
 CFG <- list(
-  ## Parent cohort: the ICI-CKD analytic master. Ledger reconciliation in §8.
   master_xlsx = "/Users/to909/Desktop/Meg/Kavita ICI CKD/Final cohort/final_master_0114_raw.xlsx",
   rpdr_dir    = "/Users/to909/Partners HealthCare Dropbox/Tianqi Ouyang/CKD after ICI/RPDR",
   rpdr_stem   = "mes98_093025104659807332",
-
-  HORIZON       = 730,   # days -- 2 years, per project specification
-  ## RPDR pull date. Death is ascertained from the Dem file through this date
-  ## and does NOT depend on lab draws, so the death negative-control outcome is
-  ## censored administratively here rather than at the last creatinine.
-  EXTRACT_DATE  = as.Date("2025-09-30"),
-  AKI_MED_WIN   = 90,    # KDIGO rule 1 lookback
-  AKI_LOW_WIN   = 2,     # KDIGO rule 2 lookback
-  AKI_RATIO     = 1.5,
-  AKI_DELTA     = 0.3,
-  AKI_FALLBACK  = TRUE,  # use pre_CRE_180days when the rolling window is empty
-  DENS_WIN      = 90,    # draw-density lookback
-  DENS_GRID     = 30,    # draw-density evaluation grid
-  LAGS          = c(0, 30, 90, 180),
-  SMALL_CELL    = 11,
-
-  cache = "cache",
-  REBUILD_RAW = FALSE    # TRUE forces a re-read of the RPDR extracts
+  HORIZON     = 730,          # days -- 2 years
+  SMALL_CELL  = 11,
+  cache       = "cache",
+  REBUILD_RAW = FALSE
 )
 dir.create(CFG$cache, showWarnings = FALSE, recursive = TRUE)
-
-rpdr <- function(kind) file.path(CFG$rpdr_dir, paste0(CFG$rpdr_stem, "_", kind, ".txt"))
-cpath <- function(x)   file.path(CFG$cache, paste0(x, ".rds"))
-
-## Read-through cache: heavy raw reads happen once.
+rpdr  <- function(k) file.path(CFG$rpdr_dir, paste0(CFG$rpdr_stem, "_", k, ".txt"))
+cpath <- function(x) file.path(CFG$cache, paste0(x, ".rds"))
 cached <- function(name, expr) {
   p <- cpath(name)
   if (!CFG$REBUILD_RAW && file.exists(p)) return(readRDS(p))
-  val <- force(expr)
-  saveRDS(val, p)
-  val
+  v <- force(expr); saveRDS(v, p); v
 }
-
-QC <- list()   # aggregate-only; this is what gets rendered
+QC <- list()   # aggregate-only; rendered
 ```
 
 ---
 
-# 3 Parent cohort
+# 2 Cohort (8,911)
 
-The ICI-CKD analytic master is the parent cohort. Its diagnosis-derived
-comorbidities are reused (`dia_list_icd()` and `dia_list_name()` apply the
-`Date <= index_date` guard in **both** branches, so they are clean), while every
-variable that the buggy `med_list()` touched is discarded and re-derived in §5.
+Start from the ICI-CKD analytic master. Keep only new-users (no PPI on or before
+ICI) with at least one post-ICI creatinine so AKI is ascertainable.
 
 ```{r}
 #| label: load-master
-master_raw <- read_excel(CFG$master_xlsx) %>% standardize_colnames()
-
-QC$n_master_file <- nrow(master_raw)   # expect 17,721 -- see A13
-
-## Bug A14: the master stores dates as POSIXct while the pipeline uses Date.
-## Mixing them makes day arithmetic return fractional days. Coerce once.
-master <- master_raw %>%
-  mutate(across(c(ICI_Dose_Date, Date_of_Birth, Date_Of_Death,
-                  pre_CRE_180days_date, pre_HGB_180days_date,
-                  pre_ALB_180days_date, last_cre_date), to_date)) %>%
-  ## Bug A4: these six columns are the UNGUARDED med_list() output -- "drug
-  ## anywhere in the extract", not baseline prevalence. Dropping them here makes
-  ## it impossible to use them by accident downstream.
-  select(-any_of(c("ppi", "ace_arb", "diu", "statins", "steroids"))) %>%
-  ## last_cre_date is also recomputed from raw in §4; drop the stale copy.
-  select(-any_of("last_cre_date")) %>%
+master <- read_excel(CFG$master_xlsx) %>%
+  standardize_colnames() %>%
+  mutate(across(c(ICI_Dose_Date, Date_of_Birth, Date_Of_Death), to_date)) %>%
   distinct(EMPI, .keep_all = TRUE)
 
-QC$n_master_distinct <- nrow(master)
-```
-
-```{r}
-#| label: baseline-covariates
 baseline <- master %>%
   transmute(
     EMPI, ICI_Dose_Date, Date_Of_Death,
     age_ici, male,
-    Race = case_when(Race1 == "White" ~ "White",
-                     Race1 == "Black" ~ "Black",
-                     Race1 == "Asian" ~ "Asian",
-                     TRUE             ~ "Other/Unknown"),
-    ici_year = as.integer(format(ICI_Dose_Date, "%Y")),
-    ## Diagnosis-derived: date-guarded upstream, reused as-is.
-    dm, htn, cad, cirrhosis, esrd_kt,
-    ## A13/known limitation: `smoking` was derived with NO date restriction and
-    ## may include post-ICI diagnoses. Kept, flagged, never called "baseline".
-    smoking_ever = smoking,
-    ## Baseline labs.
-    pre_CRE_180days, pre_HGB_180days, pre_ALB_180days, eGFR_CRE_baseline,
-    ## Co-administered chemo within +/-30 d of ICI.
-    Bevacizumab, Cisplatin, Carboplatin, Pemetrexed, Gemcitabine,
-    Cetuximab, Trastuzumab, VEGF_TKI,
-    ICI_Name, cancer_type
-  ) %>%
-  mutate(
-    cancer_group = case_when(
-      cancer_type %in% c("gi", "gu", "gyn", "thoracic") ~ cancer_type,
-      cancer_type == "cutaneous / melanoma"             ~ "cutaneous",
-      TRUE                                              ~ "other"
-    ),
-    ICI_Class = case_when(
-      tolower(ICI_Name) %in% c("pembrolizumab","nivolumab","cemiplimab","dostarlimab") ~ "PD1",
-      tolower(ICI_Name) %in% c("atezolizumab","avelumab","durvalumab")                 ~ "PDL1",
-      tolower(ICI_Name) == "ipilimumab"                                                ~ "CTLA4",
-      tolower(ICI_Name) == "ipilimumab and nivolumab"                                   ~ "Combination",
-      TRUE                                                                              ~ NA_character_
-    )
+    Race = case_when(Race1 == "White" ~ "White", Race1 == "Black" ~ "Black",
+                     Race1 == "Asian" ~ "Asian", TRUE ~ "Other/Unknown"),
+    dm, htn, eGFR_CRE_baseline
   )
-
-## esrd_kt is an EXCLUSION criterion upstream, so it is constant zero here and
-## carries no information. Confirm, then drop (plan B4).
-QC$esrd_kt_nonzero <- sum(baseline$esrd_kt != 0, na.rm = TRUE)
-```
-
----
-
-# 4 Creatinine series from RPDR Lab
-
-```{r}
-#| label: load-lab
-## fread with an explicit column selection: the Lab extract is ~909 MB and only
-## six columns are needed. Restricted columns (MRN, Result_Text, ...) are never
-## read into memory at all.
-cre_raw <- cached("cre_raw", {
-  lab <- data.table::fread(
-    rpdr("Lab"), sep = "|", quote = "", fill = TRUE, showProgress = FALSE,
-    select = c("EMPI", "Seq_Date_Time", "Group_Id", "Result",
-               "Test_Description", "Reference_Units")
-  )
-  lab <- lab[Group_Id == "CRE"]
-  lab[, cre_date := to_date(Seq_Date_Time, "%m/%d/%Y")]
-  lab[, EMPI := as.character(EMPI)]
-  lab[!is.na(cre_date), .(EMPI, cre_date, Result)]
-})
-
-## Bug A14: the pipeline's grepl("^\\d+\\.\\d+$", Result) required a decimal
-## point and therefore silently dropped integer-valued creatinines. Because
-## these values feed the rolling LOOKBACK windows, a dropped value changes AKI
-## ascertainment for its NEIGHBOURS, not only for itself.
-##
-## Measured outcome: n_rescued_vs_old_regex is 0 in this extract -- every
-## numeric creatinine here is reported with a decimal point, so the old regex
-## happened to lose nothing. The defect was real but its impact is nil. Reported
-## rather than assumed, and the guard stays in case a future pull differs.
-pl <- parse_lab_numeric(cre_raw$Result)
-QC$lab_parse <- pl[setdiff(names(pl), "value")]
-
-cre <- cre_raw %>%
-  mutate(cre = pl$value) %>%
-  filter(!is.na(cre)) %>%
-  select(EMPI, cre_date, cre) %>%
-  distinct() %>%
-  arrange(EMPI, cre_date)
-
-QC$n_cre_rows     <- nrow(cre)
-QC$n_cre_patients <- n_distinct(cre$EMPI)
 ```
 
 ```{r}
-#| label: last-cre
-## Follow-up ends at the last creatinine (NOT last_cre + 90 -- see A16).
-## last_cre_date spans the whole record, including pre-ICI draws, so
-## last_cre_days <= 0 is exactly "no post-ICI creatinine": the -170 exclusion.
-last_cre <- cre %>%
-  group_by(EMPI) %>%
-  summarise(last_cre_date = max(cre_date),
-            n_cre_total   = dplyr::n(), .groups = "drop")
-```
-
----
-
-# 5 Exposures from RPDR Med
-
-```{r}
-#| label: load-med
-## Bug A9: `Inpatient_Outpatient` IS present in this extract (column 14) and is
-## read here. `Route` does NOT exist -- there is no route column in the file --
-## so route-based analyses are out of scope and appear as a limitation.
-## `Additional_Info` is free text and is deliberately never read.
-med <- cached("med", {
-  m <- data.table::fread(
-    rpdr("Med"), sep = "|", quote = "", fill = TRUE, showProgress = FALSE,
-    select = c("EMPI", "Medication_Date", "Medication",
-               "Inpatient_Outpatient", "Quantity")
-  )
+#| label: ppi-exposure
+## PPI dispensings. `<=` (baseline) and `>` (initiation) are complementary, so a
+## new-user can never also be counted as an initiator.
+med <- cached("med_ppi", {
+  m <- data.table::fread(rpdr("Med"), sep = "|", quote = "", fill = TRUE,
+                         showProgress = FALSE,
+                         select = c("EMPI", "Medication_Date", "Medication"))
   m[, Medication_Date := to_date(Medication_Date, "%m/%d/%Y")]
   m[, EMPI := as.character(EMPI)]
-  keep <- name_regex(c(PPI_NAMES, H2RA_NAMES, STEROID_NAMES,
-                       ACE_ARB_NAMES, DIURETIC_NAMES, STATIN_NAMES))
-  m <- m[!is.na(Medication_Date) & grepl(keep, Medication, ignore.case = TRUE)]
-  m[]
+  m[grepl(name_regex(PPI_NAMES), Medication, ignore.case = TRUE)][]
+})
+master_med <- med %>% inner_join(baseline %>% select(EMPI, ICI_Dose_Date), by = "EMPI")
+
+ppi_pre  <- med_baseline(master_med, PPI_NAMES)                       # PPI on/before ICI
+ppi_post <- med_first_after(master_med, PPI_NAMES) %>%               # first PPI after ICI
+  rename(ppi_first_post_date = first_date)
+```
+
+```{r}
+#| label: creatinine
+## Serial creatinine (post-ICI creatinine feeds the AKI outcome; the last
+## creatinine at any time defines end of surveillance).
+cre <- cached("cre", {
+  lab <- data.table::fread(rpdr("Lab"), sep = "|", quote = "", fill = TRUE,
+                           showProgress = FALSE,
+                           select = c("EMPI", "Seq_Date_Time", "Group_Id", "Result"))
+  lab <- lab[Group_Id == "CRE"]
+  lab[, `:=`(EMPI = as.character(EMPI),
+             cre_date = to_date(Seq_Date_Time, "%m/%d/%Y"),
+             cre = parse_lab_numeric(Result))]
+  lab[!is.na(cre_date) & !is.na(cre), .(EMPI, cre_date, cre)][]
 })
 
-## Index date attached so med_baseline() / med_first_after() can enforce their
-## date guards. Inner join: a med row with no index date cannot be classified.
-master_med <- med %>%
-  inner_join(baseline %>% select(EMPI, ICI_Dose_Date), by = "EMPI")
+last_cre <- cre %>% group_by(EMPI) %>%
+  summarise(last_cre_date = max(cre_date), .groups = "drop")
 ```
-
-```{r}
-#| label: exposure-ppi
-## Bug A4. `<=` here and `>` in med_first_after() are complementary with no gap
-## and no overlap, so no patient can be both baseline-prevalent and an initiator.
-ppi_pre  <- med_baseline(master_med, PPI_NAMES)
-ppi_post <- med_first_after(master_med, PPI_NAMES, within_days = CFG$HORIZON) %>%
-  rename(ppi_first_post_date       = first_date,
-         ppi_n_records             = n_records,
-         ppi_n_outpatient          = n_outpatient,
-         ppi_first_outpatient_date = first_date_outpatient)
-
-## The three prevalence definitions from the reference artifact, recomputed.
-## Expect ~8,637 (48.7%) on/before ICI and ~9,081 (51.3%) new-user eligible,
-## against the 12,638 (71.3%) that the buggy med_list() produced.
-##
-## Denominator is the DEATH-GUARDED parent cohort (17,718), matching the
-## published figure and the ledger in §8. Using the raw 17,721 file instead
-## would report 9,084 here and 9,081 there -- a three-patient inconsistency
-## between two tables in the same document, which is exactly the class of
-## defect catalogued as A11.
-denom_dg <- baseline %>%
-  filter(is.na(Date_Of_Death) | Date_Of_Death >= ICI_Dose_Date)
-ppi_pre_365 <- med_baseline(master_med, PPI_NAMES, lookback_days = 365)
-
-QC$ppi_prev <- tibble(
-  definition = c("PPI on/before ICI (true baseline)",
-                 "PPI within 365 d before ICI",
-                 "No PPI on/before ICI (new-user eligible)"),
-  n = c(sum(ppi_pre$EMPI     %in% denom_dg$EMPI),
-        sum(ppi_pre_365$EMPI %in% denom_dg$EMPI),
-        nrow(denom_dg) - sum(ppi_pre$EMPI %in% denom_dg$EMPI))
-) %>% mutate(pct = round(100 * n / nrow(denom_dg), 1))
-QC$ppi_prev_denom <- nrow(denom_dg)
-```
-
-```{r}
-#| label: exposure-comparators
-## Active comparator (M8) and the time-varying confounder / negative-control
-## exposure (A7, M9).
-h2ra_pre  <- med_baseline(master_med, H2RA_NAMES)
-h2ra_post <- med_first_after(master_med, H2RA_NAMES, within_days = CFG$HORIZON) %>%
-  select(EMPI, h2ra_first_post_date = first_date)
-
-ster_pre  <- med_baseline(master_med, STEROID_NAMES, exclude = STEROID_EXCLUDE)
-ster_post <- med_first_after(master_med, STEROID_NAMES, exclude = STEROID_EXCLUDE,
-                             within_days = CFG$HORIZON) %>%
-  select(EMPI, ster_first_post_date = first_date)
-
-## Baseline medication covariates, re-derived with the date guard (A4).
-acearb_pre <- med_baseline(master_med, ACE_ARB_NAMES)
-diu_pre    <- med_baseline(master_med, DIURETIC_NAMES)
-statin_pre <- med_baseline(master_med, STATIN_NAMES)
-```
-
----
-
-# 6 AKI — re-derived with the fixed lookback
-
-```{r}
-#| label: aki-fixed
-## THE A1 FIX. create_aki() computes its rolling comparators on the FULL
-## creatinine series and subsets to post-index rows LAST, for flagging only.
-aki_fixed <- create_aki(
-  cre   = cre,
-  index = baseline %>% select(EMPI, ICI_Dose_Date, pre_CRE_180days),
-  median_window_days = CFG$AKI_MED_WIN,
-  lowest_window_days = CFG$AKI_LOW_WIN,
-  ratio_threshold    = CFG$AKI_RATIO,
-  delta_threshold    = CFG$AKI_DELTA,
-  baseline_fallback  = CFG$AKI_FALLBACK,
-  buggy_lookback     = FALSE
-)
-```
-
----
-
-# 7 Quantifying the A1 fix
-
-The outcome variable of this project was wrong until §6. This section measures
-by how much, by running the **original broken ordering** on the same input and
-diffing. Nothing here is used downstream; it exists so the change is auditable.
-
-```{r}
-#| label: aki-buggy-comparison
-aki_buggy <- create_aki(
-  cre = cre, index = baseline %>% select(EMPI, ICI_Dose_Date, pre_CRE_180days),
-  median_window_days = CFG$AKI_MED_WIN, lowest_window_days = CFG$AKI_LOW_WIN,
-  ratio_threshold = CFG$AKI_RATIO, delta_threshold = CFG$AKI_DELTA,
-  baseline_fallback = FALSE,        # the original discarded the baseline entirely
-  buggy_lookback    = TRUE          # <-- the bug
-)
-
-cmp <- aki_fixed %>%
-  select(EMPI, aki_fix = aki, day_fix = aki_days, aki_ascertainable) %>%
-  left_join(aki_buggy %>% select(EMPI, aki_bug = aki, day_bug = aki_days), by = "EMPI") %>%
-  filter(aki_ascertainable)
-
-QC$aki_fix <- list(
-  n_ascertainable   = nrow(cmp),
-  n_aki_buggy       = sum(cmp$aki_bug == 1, na.rm = TRUE),
-  n_aki_fixed       = sum(cmp$aki_fix == 1, na.rm = TRUE),
-  n_gained          = sum(cmp$aki_fix == 1 & cmp$aki_bug == 0, na.rm = TRUE),
-  n_lost            = sum(cmp$aki_fix == 0 & cmp$aki_bug == 1, na.rm = TRUE),
-  n_date_moved      = sum(cmp$aki_fix == 1 & cmp$aki_bug == 1 &
-                          cmp$day_fix != cmp$day_bug, na.rm = TRUE),
-  ## The bug's fingerprint: it makes AKI structurally undetectable at a
-  ## patient's first post-ICI draw, so aki_days == 1 is IMPOSSIBLE.
-  n_day1_buggy      = sum(cmp$day_bug == 1, na.rm = TRUE),   # expect exactly 0
-  n_day1_fixed      = sum(cmp$day_fix == 1, na.rm = TRUE),   # expect > 0
-  min_day_buggy     = suppressWarnings(min(cmp$day_bug, na.rm = TRUE)), # expect 2
-  min_day_fixed     = suppressWarnings(min(cmp$day_fix, na.rm = TRUE)),
-  ## Events moving into the first 90 days -- the window that dominates the
-  ## exposure contrast (1,397 of 2,951 PPI starts land there).
-  n_events_d0_90_buggy = sum(cmp$day_bug <= 90, na.rm = TRUE),
-  n_events_d0_90_fixed = sum(cmp$day_fix <= 90, na.rm = TRUE),
-  n_fallback_patients  = sum(aki_fixed$n_fallback_used > 0, na.rm = TRUE)
-)
-
-## Sensitivity: the fix WITHOUT the pre_CRE_180days fallback, to separate the
-## two components of A1 (window ordering vs. discarded baseline).
-aki_fixed_nofb <- create_aki(
-  cre = cre, index = baseline %>% select(EMPI, ICI_Dose_Date, pre_CRE_180days),
-  median_window_days = CFG$AKI_MED_WIN, lowest_window_days = CFG$AKI_LOW_WIN,
-  ratio_threshold = CFG$AKI_RATIO, delta_threshold = CFG$AKI_DELTA,
-  baseline_fallback = FALSE, buggy_lookback = FALSE
-)
-QC$aki_fix$n_aki_fixed_no_fallback <- sum(aki_fixed_nofb$aki == 1, na.rm = TRUE)
-```
-
-```{r}
-#| label: qc-roll-crosscheck
-## The fast data.table non-equi join and the original sapply loop must agree
-## exactly. Checked on a random patient subset -- the slow version is O(n^2) per
-## patient and cannot be run cohort-wide.
-set.seed(20260817)
-sub <- cre %>% filter(EMPI %in% sample(unique(EMPI), 400)) %>% arrange(EMPI, cre_date)
-QC$roll_crosscheck <- tibble(
-  window = c(CFG$AKI_MED_WIN, CFG$AKI_LOW_WIN),
-  fun    = c("median", "min"),
-  identical = c(
-    isTRUE(all.equal(roll_prior_stat     (sub$EMPI, sub$cre_date, sub$cre, CFG$AKI_MED_WIN, "median"),
-                     roll_prior_stat_slow(sub$EMPI, sub$cre_date, sub$cre, CFG$AKI_MED_WIN, "median"))),
-    isTRUE(all.equal(roll_prior_stat     (sub$EMPI, sub$cre_date, sub$cre, CFG$AKI_LOW_WIN, "min"),
-                     roll_prior_stat_slow(sub$EMPI, sub$cre_date, sub$cre, CFG$AKI_LOW_WIN, "min")))
-  )
-)
-stopifnot(all(QC$roll_crosscheck$identical))
-```
-
----
-
-# 8 Cohort ledger
-
-Every step is executed and asserted. **A13**: the ICI-CKD ledger documented
-seven steps but its code implemented five, and the saved master has 17,721 rows
-rather than the published 17,718 — the three pre-ICI-death RPDR errors were
-never removed from the file. That step is re-applied here.
 
 ```{r}
 #| label: cohort-ledger
-ledger <- list()
-step <- function(label, df) { ledger[[length(ledger) + 1]] <<-
-  tibble(step = label, n = nrow(df)); df }
+ledger <- list(); step <- function(lbl, df) {
+  ledger[[length(ledger) + 1]] <<- tibble(step = lbl, n = nrow(df)); df }
 
-coh <- baseline %>% step("Parent master as saved (A13: file has 17,721)", .)
-
-## Ledger step never implemented upstream: death recorded before ICI start.
-coh <- coh %>%
+coh <- baseline %>% step("ICI-CKD analytic master (as saved)", .) %>%
   filter(is.na(Date_Of_Death) | Date_Of_Death >= ICI_Dose_Date) %>%
-  step("- RPDR death date before ICI start (target 17,718)", .)
-
-## New-user restriction (A4). This is THE cohort-defining step and it is the one
-## that the master's `ppi` column would have got backwards.
-coh <- coh %>%
+    step("- death recorded before ICI start", .) %>%
   anti_join(ppi_pre, by = "EMPI") %>%
-  step("- PPI on/before ICI: new-user eligible (target 9,081)", .)
-
-## AKI ascertainability. last_cre_days <= 0 means no creatinine after ICI.
-coh <- coh %>%
+    step("- PPI on or before ICI (keep new-users)", .) %>%
   left_join(last_cre, by = "EMPI") %>%
   mutate(last_cre_days = as.numeric(last_cre_date - ICI_Dose_Date)) %>%
   filter(!is.na(last_cre_days), last_cre_days > 0) %>%
-  step("- no post-ICI creatinine (target -170)", .)
-
-## Bug A14 guard, absent upstream: a death date earlier than the last
-## creatinine yields a zero-length or negative final interval and tmerge()
-## rejects it.
-coh <- coh %>%
-  mutate(death_days = as.numeric(Date_Of_Death - ICI_Dose_Date)) %>%
-  filter(is.na(death_days) | death_days > 0) %>%
-  step("- death-before-last-creatinine integrity guard", .)
+    step("- no creatinine after ICI (keep ascertainable)", .)
 
 QC$ledger <- bind_rows(ledger) %>% mutate(removed = lag(n) - n)
+stopifnot(nrow(coh) == 8911)          # the analytic cohort
 ```
 
 ---
 
-# 9 Patient-level analysis frame
+# 3 AKI outcome (post-ICI creatinine)
+
+```{r}
+#| label: aki
+aki <- create_aki(cre, coh %>% select(EMPI, ICI_Dose_Date))
+
+coh <- coh %>% left_join(aki %>% select(EMPI, aki, aki_date, aki_days), by = "EMPI")
+```
+
+---
+
+# 4 Follow-up & time-varying exposure
 
 ```{r}
 #| label: analysis-frame
 pt <- coh %>%
-  left_join(aki_fixed %>% select(EMPI, aki, aki_date, aki_days,
-                                 aki_ascertainable, n_fallback_used), by = "EMPI") %>%
-  left_join(ppi_post,  by = "EMPI") %>%
-  left_join(h2ra_post, by = "EMPI") %>%
-  left_join(ster_post, by = "EMPI") %>%
-  ## Baseline medications, re-derived and date-guarded (A4).
+  left_join(ppi_post, by = "EMPI") %>%
   mutate(
-    ppi_pre    = 0L,                                    # by construction, post-§8
-    h2ra_pre   = as.integer(EMPI %in% h2ra_pre$EMPI),
-    ster_pre   = as.integer(EMPI %in% ster_pre$EMPI),
-    ace_arb    = as.integer(EMPI %in% acearb_pre$EMPI),
-    diu        = as.integer(EMPI %in% diu_pre$EMPI),
-    statins    = as.integer(EMPI %in% statin_pre$EMPI)
+    ppi_day    = as.numeric(ppi_first_post_date - ICI_Dose_Date),
+    death_days = as.numeric(Date_Of_Death - ICI_Dose_Date),
+    ## Follow-up ends at the earliest of AKI, last creatinine, death, horizon.
+    fu_days    = pmin(aki_days, last_cre_days, death_days, CFG$HORIZON, na.rm = TRUE),
+    ## Event = AKI within follow-up.
+    ev         = as.integer(!is.na(aki_days) & aki_days <= fu_days),
+    ## Initiator = starts a PPI while still at risk.
+    ppi_initiator = as.integer(!is.na(ppi_day) & ppi_day > 0 & ppi_day < fu_days)
   ) %>%
-  mutate(
-    ppi_day   = as.numeric(ppi_first_post_date       - ICI_Dose_Date),
-    ppi_op_day= as.numeric(ppi_first_outpatient_date - ICI_Dose_Date),
-    h2ra_day  = as.numeric(h2ra_first_post_date      - ICI_Dose_Date),
-    ster_day  = as.numeric(ster_first_post_date      - ICI_Dose_Date)
-  ) %>%
-  mutate(
-    ## ---- FULL-RECORD dates: NOT truncated by follow-up --------------------
-    ## Needed because the analysis frame necessarily ends follow-up at the AKI,
-    ## which blanks any later PPI date and makes a pre-PPI event impossible BY
-    ## CONSTRUCTION. The mirror window (§12) and the immortal-time diagnostics
-    ## (M0) are precisely the quantities that must see those patients, so they
-    ## use these columns and never the truncated ones below. Computing the
-    ## mirror window from truncated dates yields all-zero pre-prescription bands
-    ## -- a figure that looks clean and is meaningless.
-    ppi_day_full  = as.numeric(ppi_first_post_date - ICI_Dose_Date),
-    aki_day_full  = aki_days,
-    ppi_ever_post = as.integer(!is.na(ppi_day_full) & ppi_day_full <= CFG$HORIZON),
-    ## End of creatinine surveillance, independent of when the PPI arrives.
-    obs_end       = pmin(aki_day_full, last_cre_days, CFG$HORIZON, na.rm = TRUE),
+  filter(fu_days > 0)
 
-    ## ---- AKI follow-up (primary) -----------------------------------------
-    ## Ends at the earliest of: AKI, last creatinine, death, horizon.
-    ## NOT last_cre_days + 90 (A16). Censoring at the last creatinine is
-    ## required because KDIGO AKI cannot be detected without a draw.
-    fu_days = pmin(aki_days, last_cre_days, death_days, CFG$HORIZON, na.rm = TRUE),
-    ev      = as.integer(!is.na(aki_days) & aki_days <= fu_days),
+## Impute the handful of missing baseline eGFR at the patient level (an
+## adjusted model would otherwise silently drop those rows).
+if (any(is.na(pt$eGFR_CRE_baseline)))
+  pt$eGFR_CRE_baseline[is.na(pt$eGFR_CRE_baseline)] <-
+    median(pt$eGFR_CRE_baseline, na.rm = TRUE)
 
-    ## ---- Death follow-up (negative-control outcome, M7) ------------------
-    ## Death comes from the Dem file and does NOT require a lab draw, so it must
-    ## NOT be censored at the last creatinine. Doing so puts death_days inside
-    ## the same pmin() that defines fu_days, making `death_days <= fu_days` true
-    ## only when death is the earliest of all four -- which it almost never is,
-    ## because the last creatinine usually precedes death. That collapses the
-    ## negative control to a few dozen events and makes it useless.
-    ## Censor administratively at the RPDR pull date instead.
-    admin_days    = as.numeric(CFG$EXTRACT_DATE - ICI_Dose_Date),
-    fu_days_death = pmin(death_days, admin_days, CFG$HORIZON, na.rm = TRUE),
-    ev_death      = as.integer(!is.na(death_days) & death_days <= fu_days_death),
-
-    ## An initiator only counts if initiation happens while under observation.
-    ppi_initiator = as.integer(!is.na(ppi_day) & ppi_day <= fu_days)
-  ) %>%
-  ## Switch times after follow-up ends are irrelevant to the model; blank them so
-  ## the initiator flag and the tmerge cut points cannot disagree. The *_full
-  ## columns above are deliberately left untouched.
-  mutate(across(c(ppi_day, ppi_op_day, h2ra_day, ster_day),
-                ~ if_else(!is.na(.) & . <= fu_days, ., NA_real_))) %>%
-  filter(fu_days > 0, fu_days_death > 0)
-
-## A11: the reference artifacts used three different initiator counts (2,951 /
-## 3,058 / 3,341) interchangeably. Here both definitions are named, computed
-## once, and reported side by side so they can never be confused.
-##  - ppi_initiator : initiation occurs while UNDER OBSERVATION (model exposure)
-##  - ppi_ever_post : any post-ICI PPI within the horizon, ignoring follow-up
-##                    end (naive time-fixed exposure, and the mirror-window set)
-QC$initiators <- tibble(
-  n_cohort         = nrow(pt),
-  n_initiator      = sum(pt$ppi_initiator == 1),
-  n_never          = sum(pt$ppi_initiator == 0),
-  n_ever_post_full = sum(pt$ppi_ever_post == 1),
-  n_h2ra_new_730   = sum(!is.na(pt$h2ra_day) & pt$h2ra_pre == 0),
-  n_events         = sum(pt$ev),
-  n_deaths         = sum(pt$ev_death),
-  pct_dead         = round(100 * mean(pt$ev_death), 1),
-  py               = round(sum(pt$fu_days) / 365.25, 1),
-  median_fu        = median(pt$fu_days),
-  pct_followed_730 = round(100 * mean(pt$obs_end >= CFG$HORIZON), 1)
+QC$cohort <- tibble(
+  n            = nrow(pt),
+  ppi_initiators = sum(pt$ppi_initiator),
+  never_ppi    = sum(pt$ppi_initiator == 0),
+  aki_events   = sum(pt$ev),
+  person_years = round(sum(pt$fu_days) / 365.25, 1),
+  median_fu_days = median(pt$fu_days)
 )
-stopifnot(QC$initiators$n_initiator + QC$initiators$n_never == QC$initiators$n_cohort,
-          QC$initiators$n_ever_post_full >= QC$initiators$n_initiator)
-
-## Bug A10(1): coxph's na.action = na.omit drops INTERVALS, not patients,
-## silently leaving incoherent risk sets. Resolve missingness at the PATIENT
-## level, before splitting, with an explicit indicator.
-pt <- impute_flag(pt, c("pre_HGB_180days", "pre_ALB_180days", "eGFR_CRE_baseline"))
-
-BINARY_VARS <- c("male", "dm", "htn", "cad", "cirrhosis", "diu", "ace_arb",
-                 "statins", "smoking_ever", "ster_pre", "h2ra_pre",
-                 "Bevacizumab", "Cisplatin", "Carboplatin", "Pemetrexed",
-                 "Gemcitabine", "Cetuximab", "Trastuzumab", "VEGF_TKI")
-
-## Binary comorbidity/medication flags come from CASE WHEN ... THEN 1 ELSE 0
-## upstream, so "no record" is already 0. A left-join miss can still introduce
-## NA, so the fill is explicit and its size reported rather than silent.
-QC$binary_na_filled <- pt %>%
-  summarise(across(all_of(BINARY_VARS), ~ sum(is.na(.)))) %>% unlist()
-pt <- pt %>% mutate(across(all_of(BINARY_VARS), ~ tidyr::replace_na(as.integer(.), 0L)))
-
-MODEL_VARS <- c("age_ici", "male", "Race", "ici_year", "dm", "htn", "cad",
-                "cirrhosis", "diu", "ace_arb", "statins", "smoking_ever",
-                "ster_pre", "eGFR_CRE_baseline", "pre_HGB_180days",
-                "pre_ALB_180days", "pre_HGB_180days_miss", "pre_ALB_180days_miss",
-                "eGFR_CRE_baseline_miss",
-                "Bevacizumab", "Cisplatin", "Carboplatin", "Pemetrexed",
-                "Gemcitabine", "Cetuximab", "Trastuzumab", "VEGF_TKI",
-                "cancer_group")
-## esrd_kt deliberately absent: constant zero by construction (plan B4).
-QC$model_var_missing <- pt %>% summarise(across(all_of(MODEL_VARS),
-                                                ~ sum(is.na(.)))) %>% unlist()
-stopifnot(all(QC$model_var_missing == 0))
-
-## ---- Degenerate-covariate guard ------------------------------------------
-## A covariate with no variance drives its coefficient to +/-Inf, which
-## destabilises the whole fit and inflates every standard error in the model --
-## coxph reports this only as "Loglik converged before variable N; beta may be
-## infinite", which is easy to scroll past.
-##
-## esrd_kt was caught by hand because it is a documented exclusion criterion.
-## eGFR_CRE_baseline_miss is the same defect arriving by a different route:
-## baseline creatinine is an INCLUSION criterion, so baseline eGFR is never
-## missing and its missing-indicator is constant zero. Rather than special-case
-## each one, drop any covariate that cannot support a coefficient, and report it.
-var_screen <- purrr::map_dfr(MODEL_VARS, function(v) {
-  x <- pt[[v]]
-  if (is.character(x) || is.factor(x)) {
-    tibble(var = v, kind = "categorical", n_levels = dplyr::n_distinct(x),
-           minority_n = min(table(x)))
-  } else {
-    tibble(var = v, kind = "numeric", n_levels = dplyr::n_distinct(x),
-           minority_n = if (dplyr::n_distinct(x) == 2)
-                          min(sum(x == min(x)), sum(x == max(x)))
-                        else NA_integer_)
-  }
-}) %>%
-  mutate(drop_reason = case_when(
-    n_levels < 2                                  ~ "constant -- no variance",
-    !is.na(minority_n) & minority_n < CFG$SMALL_CELL ~
-      paste0("minority cell < ", CFG$SMALL_CELL, " (unstable, and below the ",
-             "small-cell threshold in any case)"),
-    TRUE                                          ~ NA_character_))
-
-QC$var_screen  <- var_screen
-QC$vars_dropped <- var_screen %>% filter(!is.na(drop_reason))
-MODEL_VARS <- setdiff(MODEL_VARS, QC$vars_dropped$var)
-QC$n_model_vars <- length(MODEL_VARS)
-```
-
----
-
-# 10 Time-varying monitoring intensity
-
-```{r}
-#| label: draw-density
-## A8. Replaces lab_num_*year, which counts a fixed window, is a survivorship
-## variable, and is logical (all-NA) at years 9-10 in the master.
-## Evaluated on a 30-day grid: a per-draw grid would push the counting-process
-## frame into the millions of rows for no gain in resolution.
-cre_post <- cre %>%
-  inner_join(pt %>% select(EMPI, ICI_Dose_Date, fu_days), by = "EMPI") %>%
-  mutate(day = as.numeric(cre_date - ICI_Dose_Date)) %>%
-  filter(day > 0, day <= fu_days)
-
-probe <- pt %>%
-  select(EMPI, fu_days) %>%
-  mutate(grid = purrr::map(fu_days,
-           ~ seq(CFG$DENS_GRID, max(CFG$DENS_GRID, .x), by = CFG$DENS_GRID))) %>%
-  tidyr::unnest(grid) %>%
-  filter(grid < fu_days) %>%
-  transmute(EMPI, day = grid)
-
-dens <- count_prior_window(cre_post %>% select(EMPI, day), probe,
-                           window_days = CFG$DENS_WIN) %>%
-  transmute(id = EMPI, day, val = n_prior)
-
-QC$dens <- list(n_rows = nrow(dens),
-                mean_n90 = round(mean(dens$val), 2),
-                by_initiator = pt %>%
-                  select(EMPI, ppi_initiator) %>%
-                  inner_join(dens, by = c("EMPI" = "id")) %>%
-                  group_by(ppi_initiator) %>%
-                  summarise(mean_draws_90d = round(mean(val), 2), .groups = "drop"))
-```
-
----
-
-# 11 Counting-process datasets
-
-```{r}
-#| label: build-cp
-## A5. One row per covariate interval; Surv(tstart, tstop, event) replaces
-## Surv(time, event). A patient who starts a PPI on day 120 and has an AKI on
-## day 200 contributes 120 unexposed days and 80 exposed days -- not 200
-## exposed days.
-cp_base <- pt %>%
-  select(id = EMPI, fu_days, ev, ev_death,
-         ppi_day, ppi_op_day, h2ra_day, ster_day, ppi_initiator,
-         all_of(MODEL_VARS))
-
-SWITCHES <- list(ppi = "ppi_day", ster = "ster_day")
-
-cp <- list()
-for (lg in CFG$LAGS) {
-  nm <- paste0("lag", lg)
-  cp[[nm]] <- build_counting_process(
-    cp_base, switches = SWITCHES,
-    lag_days = lg, lag_on = if (lg > 0) "ppi" else NULL,
-    dens = dens
-  )
-  QC$cp[[nm]] <- assert_cp_valid(cp[[nm]], cp_base)
-}
-
-## A12 sensitivity: same-day events into EXPOSED person-time. tmerge's default
-## tdc() convention assigns them to UNEXPOSED, which matters here because day 0
-## is the single highest-risk day in the dataset.
-cp$lag0_sameday <- build_counting_process(cp_base, switches = SWITCHES,
-                                          dens = dens, same_day_exposed = TRUE)
-QC$cp$lag0_sameday <- assert_cp_valid(cp$lag0_sameday, cp_base)
-
-## M7: death as the negative-control outcome, identical exposure structure but
-## its OWN follow-up clock -- death does not require a creatinine draw, so it is
-## censored administratively rather than at the last lab.
-cp_death_base <- pt %>%
-  select(id = EMPI, fu_days = fu_days_death, ev = ev_death,
-         ppi_day, ster_day, all_of(MODEL_VARS)) %>%
-  ## Switch times must fall inside the death clock, which extends further than
-  ## the AKI clock; recover them from the untruncated columns.
-  mutate(ppi_day  = pt$ppi_day_full,
-         ster_day = as.numeric(pt$ster_first_post_date - pt$ICI_Dose_Date)) %>%
-  mutate(across(c(ppi_day, ster_day), ~ if_else(!is.na(.) & . <= fu_days, ., NA_real_)))
-
-cp$death <- build_counting_process(cp_death_base, switches = SWITCHES, dens = dens)
-QC$cp$death <- assert_cp_valid(cp$death, cp_death_base)
 ```
 
 ```{r}
-#| label: person-time
-## The denominator the model actually uses.
-QC$person_time <- cp$lag0 %>%
+#| label: counting-process
+## One row per exposure interval: unexposed (0 -> ppi_day) then exposed
+## (ppi_day -> end). Surv(tstart, tstop, event) ~ ppi.
+cp <- build_cp_ppi(
+  pt %>% transmute(id = EMPI, fu_days, ev, ppi_day,
+                   age_ici, male, Race, dm, htn, eGFR_CRE_baseline)
+)
+
+## Person-time and crude rate by exposure state.
+QC$person_time <- cp %>%
   mutate(days = tstop - tstart) %>%
-  group_by(exposed = ppi) %>%
+  group_by(exposure = ifelse(ppi == 1, "On PPI (after initiation)", "Not on PPI")) %>%
   summarise(person_years = round(sum(days) / 365.25, 0),
-            events       = sum(event), .groups = "drop") %>%
-  mutate(rate_per_100py = round(100 * events / person_years, 1),
-         exposed = if_else(exposed == 1, "After first PPI", "Before any PPI / never"))
+            aki_events   = sum(event), .groups = "drop") %>%
+  mutate(rate_per_100py = round(100 * aki_events / person_years, 1))
 
-## A5 magnitude. This MUST be computed on the naive time-fixed exposure
-## (ppi_ever_post, full-record), not on ppi_initiator. Under the time-varying
-## definition follow-up ends at the AKI, so a later PPI date is blanked and
-## `events before the first PPI` is identically zero BY CONSTRUCTION -- which
-## would make the immortal-time bias look like it does not exist. The whole
-## point of M0 is that the naive design credits those patients' pre-drug
-## person-time, and their pre-drug events, to the exposed group.
-naive <- pt %>% filter(ppi_ever_post == 1)
-QC$immortal_time <- list(
-  n_naive_exposed        = nrow(naive),
-  n_timevarying_exposed  = sum(pt$ppi_initiator == 1),
-  ## Person-days the naive design assigns to "exposed" that precede the drug.
-  pct_predrug_persondays = round(100 * sum(pmin(naive$ppi_day_full, naive$obs_end)) /
-                                       sum(naive$obs_end), 1),
-  n_events_naive_exposed = sum(naive$ev),
-  n_events_before_ppi    = sum(naive$ev == 1 &
-                               naive$aki_day_full <  naive$ppi_day_full, na.rm = TRUE),
-  n_events_same_day      = sum(naive$ev == 1 &
-                               naive$aki_day_full == naive$ppi_day_full, na.rm = TRUE),
-  n_events_after_ppi     = sum(naive$ev == 1 &
-                               naive$aki_day_full >  naive$ppi_day_full, na.rm = TRUE)
-)
-## A12: same-day events are assigned to UNEXPOSED person-time by tmerge's tdc()
-## convention. Assert the reconciliation the artifacts left implicit.
-stopifnot(with(QC$immortal_time,
-               n_events_before_ppi + n_events_same_day + n_events_after_ppi ==
-               n_events_naive_exposed))
+## Sanity: exactly the cohort's patients and events survive the split.
+stopifnot(dplyr::n_distinct(cp$id) == nrow(pt), sum(cp$event) == sum(pt$ev))
 ```
 
 ---
 
-# 12 Mirror window (A6)
-
-The decisive descriptive object: the AKI rate by day **relative to the first
-PPI**, looking backward as well as forward. A drug cannot raise risk in the week
-before it is given, so symmetry around day 0 is evidence that the prescription
-and the creatinine rise are two readouts of one acute episode.
-
-Recomputed here on the **repaired** AKI variable — the artifact's version of
-this figure was built on the broken outcome.
-
-```{r}
-#| label: mirror-window
-BANDS <- tibble(
-  band = factor(c("-90..-31","-30..-15","-14..-8","-7..-1","day 0",
-                  "+1..+7","+8..+14","+15..+30","+31..+90","+91..+365"),
-                levels = c("-90..-31","-30..-15","-14..-8","-7..-1","day 0",
-                           "+1..+7","+8..+14","+15..+30","+31..+90","+91..+365")),
-  lo = c(-90,-30,-14,-7, 0,  1,  8, 15, 31,  91),
-  hi = c(-31,-15, -8,-1, 0,  7, 14, 30, 90, 365)
-)
-
-## The set is everyone with a post-ICI PPI within the horizon, using FULL-RECORD
-## dates (ppi_day_full / aki_day_full). Using the model's truncated `ppi_day`
-## here would restrict the set to patients whose PPI preceded their AKI, so
-## every pre-prescription band would be exactly zero and the figure -- the
-## project's central claim -- would be vacuous while looking perfectly tidy.
-mw_pt <- pt %>%
-  filter(ppi_ever_post == 1) %>%
-  select(EMPI, ppi_day_full, obs_end, aki_day_full, ev)
-
-mirror <- BANDS %>%
-  rowwise() %>%
-  mutate(
-    ## Observed person-days falling in [ppi_day + lo, ppi_day + hi], clamped to
-    ## [0, obs_end]. Empty intervals contribute 0, not 1.
-    person_days = {
-      a <- pmax(0,              mw_pt$ppi_day_full + lo)
-      b <- pmin(mw_pt$obs_end,  mw_pt$ppi_day_full + hi)
-      sum(pmax(0, b - a + 1))
-    },
-    events = sum(mw_pt$ev == 1 &
-                 (mw_pt$aki_day_full - mw_pt$ppi_day_full) >= lo &
-                 (mw_pt$aki_day_full - mw_pt$ppi_day_full) <= hi, na.rm = TRUE)
-  ) %>%
-  ungroup() %>%
-  mutate(rate_per_1000_pd = round(1000 * events / person_days, 2),
-         events_shown     = suppress_small_cells(events, CFG$SMALL_CELL))
-
-QC$mirror <- mirror
-QC$mirror_n_patients <- nrow(mw_pt)
-
-## Guard against silently republishing a degenerate version of this figure: if
-## no pre-prescription band has any event, the truncation bug is back.
-QC$mirror_pre_events <- sum(mirror$events[mirror$hi < 0])
-if (QC$mirror_pre_events == 0) {
-  warning("Mirror window has zero pre-prescription events -- check that ",
-          "ppi_day_full / aki_day_full are untruncated (see §9).")
-}
-```
-
----
-
-# 13 Save
+# 5 Save
 
 ```{r}
 #| label: save
-saveRDS(pt,         cpath("pt"))       # patient-level frame (holds EMPI: local only)
-saveRDS(cp,         cpath("cp"))       # counting-process frames
-saveRDS(cp_base,    cpath("cp_base"))  # so analysis.qmd can build further frames
-saveRDS(dens,       cpath("dens"))
-saveRDS(MODEL_VARS, cpath("model_vars"))
-saveRDS(CFG,        cpath("cfg"))
+saveRDS(pt,  cpath("pt"))    # patient-level (holds EMPI: local only)
+saveRDS(cp,  cpath("cp"))    # counting-process frame for the Cox model
+saveRDS(CFG, cpath("cfg"))
 
-## QC is the ONLY object analysis.qmd renders from that was built here. It is
-## aggregate-only by construction; assert it before writing.
+walk_ok <- vapply(QC, function(x) if (is.data.frame(x)) { assert_no_phi(x); TRUE } else TRUE,
+                  logical(1))
 QC$built_at <- Sys.time()
-walk2(QC, names(QC), function(x, n) {
-  if (is.data.frame(x)) assert_no_phi(x, paste0("QC$", n))
-})
 saveRDS(QC, cpath("qc"))
 ```
 
 ---
 
-# 14 Rendered QC summary
-
-The only chunks on this page that execute. They read `cache/qc.rds` and print
-aggregates; cells below `r 11` are suppressed.
+# 6 Rendered summary
 
 ```{r}
 #| label: qc-render
@@ -894,40 +244,11 @@ aggregates; cells below `r 11` are suppressed.
 #| echo: false
 qc_path <- file.path("cache", "qc.rds")
 if (!file.exists(qc_path)) {
-  cat("_Pipeline has not been run yet — see the callout at the top of this page._")
+  cat("_Pipeline has not been run yet — see the callout at the top._")
   knitr::knit_exit()
 }
 QC <- readRDS(qc_path)
-```
-
-```{r}
-#| label: qc-ledger-table
-#| eval: true
-#| echo: false
-knitr::kable(QC$ledger, caption = "Cohort ledger (every step executed and asserted)")
-```
-
-```{r}
-#| label: qc-ppi-prev-table
-#| eval: true
-#| echo: false
-knitr::kable(QC$ppi_prev,
-  caption = "PPI prevalence by definition. The buggy med_list() reported 71.3% as baseline.")
-```
-
-```{r}
-#| label: qc-aki-fix-table
-#| eval: true
-#| echo: false
-knitr::kable(
-  tibble::enframe(unlist(QC$aki_fix), name = "metric", value = "value"),
-  caption = "Effect of the A1 fix on the AKI outcome. n_day1_buggy must be 0 and n_day1_fixed must exceed it.")
-```
-
-```{r}
-#| label: qc-person-time-table
-#| eval: true
-#| echo: false
-knitr::kable(QC$person_time, caption = "Person-time by time-varying exposure state")
-knitr::kable(QC$mirror, caption = "Mirror window: AKI rate by day relative to the first PPI")
+knitr::kable(QC$ledger,       caption = "Cohort ledger (each step asserted in code)")
+knitr::kable(t(QC$cohort),    caption = "Analytic cohort")
+knitr::kable(QC$person_time,  caption = "Person-time and crude AKI rate by time-varying PPI state")
 ```
