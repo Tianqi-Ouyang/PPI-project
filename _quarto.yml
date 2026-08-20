@@ -5,6 +5,7 @@ project:
     - index.qmd
     - data_management.qmd
     - analysis.qmd
+    - diagnostics.qmd
 
 website:
   title: "PPI → AKI after ICI"
@@ -17,6 +18,8 @@ website:
         text: Data Management
       - href: analysis.qmd
         text: Analysis
+      - href: diagnostics.qmd
+        text: Diagnostics
   page-footer:
     left: "© 2026 · Code reference only — no patient data rendered"
 

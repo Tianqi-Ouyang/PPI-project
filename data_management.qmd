@@ -113,6 +113,28 @@ ppi_post <- med_first_after(master_med, PPI_NAMES) %>%               # first PPI
 ```
 
 ```{r}
+#| label: steroid-exposure
+## Systemic steroids are the key time-varying confounder: in ICI patients they
+## are started to treat immune-related adverse events (including interstitial
+## nephritis), and a PPI is routinely co-prescribed alongside them. Without this
+## term the PPI coefficient absorbs the steroid indication.
+med_ster <- cached("med_steroid", {
+  m <- data.table::fread(rpdr("Med"), sep = "|", quote = "", fill = TRUE,
+                         showProgress = FALSE,
+                         select = c("EMPI", "Medication_Date", "Medication"))
+  m[, Medication_Date := to_date(Medication_Date, "%m/%d/%Y")]
+  m[, EMPI := as.character(EMPI)]
+  m[grepl(name_regex(STEROID_NAMES), Medication, ignore.case = TRUE) &
+    !grepl(name_regex(STEROID_EXCLUDE), Medication, ignore.case = TRUE)][]
+})
+
+ster_post <- med_ster %>%
+  inner_join(baseline %>% select(EMPI, ICI_Dose_Date), by = "EMPI") %>%
+  med_first_after_excl(STEROID_NAMES, STEROID_EXCLUDE) %>%
+  rename(ster_first_post_date = first_date)
+```
+
+```{r}
 #| label: creatinine
 ## Serial creatinine (post-ICI creatinine feeds the AKI outcome; the last
 ## creatinine at any time defines end of surveillance).
@@ -168,10 +190,16 @@ coh <- coh %>% left_join(aki %>% select(EMPI, aki, aki_date, aki_days), by = "EM
 ```{r}
 #| label: analysis-frame
 pt <- coh %>%
-  left_join(ppi_post, by = "EMPI") %>%
+  left_join(ppi_post,  by = "EMPI") %>%
+  left_join(ster_post, by = "EMPI") %>%
   mutate(
-    ppi_day    = as.numeric(ppi_first_post_date - ICI_Dose_Date),
+    ppi_day    = as.numeric(ppi_first_post_date  - ICI_Dose_Date),
+    ster_day   = as.numeric(ster_first_post_date - ICI_Dose_Date),
     death_days = as.numeric(Date_Of_Death - ICI_Dose_Date),
+    ## Observation window for the co-timing diagnostics. Unlike fu_days this
+    ## does NOT stop at the AKI, so an AKI occurring before the PPI still has
+    ## its person-time counted (see mirror_window()).
+    obs_days   = pmin(last_cre_days, death_days, CFG$HORIZON, na.rm = TRUE),
     ## Follow-up ends at the earliest of AKI, last creatinine, death, horizon.
     fu_days    = pmin(aki_days, last_cre_days, death_days, CFG$HORIZON, na.rm = TRUE),
     ## Event = AKI within follow-up.
@@ -195,6 +223,14 @@ QC$cohort <- tibble(
   person_years = round(sum(pt$fu_days) / 365.25, 1),
   median_fu_days = median(pt$fu_days)
 )
+
+## Steroid co-initiation -- the imbalance the time-varying term exists to absorb.
+QC$steroid <- pt %>%
+  group_by(group = ifelse(ppi_initiator == 1, "Started PPI", "Never PPI")) %>%
+  summarise(n = dplyr::n(),
+            started_steroid = sum(!is.na(ster_day) & ster_day <= obs_days),
+            pct = round(100 * mean(!is.na(ster_day) & ster_day <= obs_days), 1),
+            .groups = "drop")
 ```
 
 ```{r}

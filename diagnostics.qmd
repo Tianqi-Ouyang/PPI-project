@@ -1,0 +1,215 @@
+---
+title: "PPI → AKI after ICI — Co-timing Diagnostics"
+subtitle: "Is the association a drug effect, or the encounter that produced the prescription?"
+author: "Tianqi Ouyang"
+date: "`r Sys.Date()`"
+execute:
+  eval: true
+  echo: true
+  warning: false
+  message: false
+---
+
+::: {.callout-note}
+## About this page
+Renders **aggregate results only** from `cache/*.rds` built by
+[`data_management.qmd`](data_management.qmd). No patient-level row reaches the
+output; cells below 11 are suppressed. Follow-up horizon is 730 days.
+:::
+
+The time-varying Cox model in [`analysis.qmd`](analysis.qmd) answers one
+question: *is the AKI hazard higher while a patient is on a PPI?* It cannot
+answer a second one: *is the PPI doing it?* A drug ordered at the same clinical
+moment as the outcome will look causal to any model that only knows exposure
+status at each instant.
+
+Three diagnostics separate the two. All of them re-zero the clock on each
+patient's **own initiation date** rather than on the ICI infusion.
+
+```{r}
+#| label: setup
+#| include: false
+suppressPackageStartupMessages({
+  library(dplyr); library(survival); library(broom)
+  library(ggplot2); library(knitr)
+})
+source("R/ppi_functions.R")
+have <- all(file.exists(file.path("cache", paste0(c("pt", "cfg"), ".rds"))))
+```
+
+```{r}
+#| label: load
+#| include: false
+if (!have) knitr::knit_exit()
+pt  <- readRDS("cache/pt.rds")
+CFG <- readRDS("cache/cfg.rds")
+
+covars <- c("age_ici", "male", "dm", "htn", "eGFR_CRE_baseline")
+d <- pt %>% transmute(id = EMPI, fu_days, ev, ppi_day, ster_day,
+                      age_ici, male, dm, htn, eGFR_CRE_baseline)
+```
+
+# 1 The mirror window
+
+If a PPI causes AKI, the rate should be flat *before* the prescription and
+raised *after* it. This table places windows on both sides of each initiator's
+own PPI date. Person-time is counted over the observation window (last
+creatinine, death, or horizon) — **not** the at-risk window, which stops at the
+AKI and would delete every patient whose AKI came first.
+
+```{r}
+#| label: tbl-mirror
+#| echo: false
+mw <- mirror_window(pt, pt$obs_days)
+mw %>%
+  mutate(side = case_when(as.numeric(sub("\\.\\..*", "", window)) < 0 ~ "before",
+                          window == "+0..+0" ~ "day of prescription",
+                          TRUE ~ "after")) %>%
+  transmute(Window = window, Side = side,
+            `Person-days` = format(person_days, big.mark = ","),
+            AKI = aki, `Rate / 1,000 person-days` = rate_per_1000_pd) %>%
+  kable(caption = "AKI incidence in windows placed relative to each initiator's own first PPI.")
+```
+
+```{r}
+#| label: fig-mirror
+#| echo: false
+#| fig-height: 4.2
+#| fig-cap: "AKI rate per 1,000 person-days by window relative to the first PPI. A drug effect raises only the right-hand side; a shared cause is symmetric."
+mw %>%
+  mutate(window = factor(window, levels = window),
+         side = ifelse(as.numeric(sub("\\.\\..*", "", window)) < 0, "Before PPI",
+                ifelse(window == "+0..+0", "Day of PPI", "After PPI"))) %>%
+  ggplot(aes(window, rate_per_1000_pd, fill = side)) +
+  geom_col() +
+  scale_fill_manual(values = c("Before PPI" = "#0B6E6D", "Day of PPI" = "#98301F",
+                               "After PPI" = "#C8862A"), name = NULL) +
+  labs(x = "Days relative to first PPI", y = "AKI per 1,000 person-days") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "top")
+```
+
+::: {.callout-important}
+## How to read this
+The rate in the week *before* the prescription is close to the rate in the week
+*after* it, and the single highest-rate window is the prescription day itself.
+A drug cannot raise risk in the week before it is taken, so a symmetric peak
+centred on day 0 points to a shared cause — the acute admission that produces
+both the stress-ulcer prophylaxis order and the daily creatinine draws.
+:::
+
+# 2 Hazard by time since initiation
+
+Splitting the exposed person-time by how long the patient has actually been on
+the drug. A pharmacologic effect should persist with continued exposure; an
+artifact of the ordering encounter should decay.
+
+```{r}
+#| label: tbl-bands
+#| echo: false
+cp_b <- build_cp_bands(d)
+
+## Structural checks — the split must preserve patients, events and person-time.
+stopifnot(dplyr::n_distinct(cp_b$id) == nrow(d),
+          sum(cp_b$event) == sum(d$ev),
+          abs(sum(cp_b$tstop - cp_b$tstart) - sum(d$fu_days)) < 1,
+          !any(is.na(cp_b$band)))
+
+m_band <- coxph(as.formula(paste("Surv(tstart, tstop, event) ~ band + ster +",
+                                 paste(covars, collapse = " + "))), data = cp_b)
+
+rate <- cp_b %>% group_by(band) %>%
+  summarise(person_years = round(sum(tstop - tstart) / 365.25, 1),
+            aki = sum(event), .groups = "drop") %>%
+  mutate(rate_per_100py = round(100 * aki / person_years, 1))
+
+hr <- tidy(m_band, exponentiate = TRUE, conf.int = TRUE) %>%
+  filter(grepl("^band", term)) %>%
+  transmute(band = sub("^band", "", term),
+            HR = sprintf("%.2f (%.2f-%.2f)", estimate, conf.low, conf.high))
+
+rate %>% left_join(hr, by = "band") %>%
+  mutate(band = as.character(band),
+         HR = ifelse(is.na(HR), "1.00 (reference)", HR)) %>%
+  rename(`Time since first PPI` = band, `Person-years` = person_years,
+         AKI = aki, `Rate / 100 py` = rate_per_100py, `HR (95% CI)` = HR) %>%
+  kable(caption = "Adjusted for age, sex, diabetes, hypertension, baseline eGFR, and time-varying systemic steroids.")
+```
+
+# 3 Induction-period ladder
+
+Credit exposure only from *lag* days after the prescription, and drop the
+induction window from the risk set entirely rather than handing it back to the
+comparator. A real effect plateaus; a co-timing artifact decays monotonically.
+
+```{r}
+#| label: tbl-ladder
+#| echo: false
+induction_ladder(d, lags = c(0, 30, 90, 180), rhs = c("ster", covars)) %>%
+  transmute(`Induction period (days)` = induction_days,
+            `AKI events` = events,
+            `HR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", HR, lo, hi)) %>%
+  kable(caption = "PPI effect on AKI as the prescription is separated from the risk window.")
+```
+
+# 4 Death as a negative-control outcome
+
+The same exposure structure, with **death** as the outcome. Creatinine sampling
+can manufacture an AKI; nothing manufactures a death. Follow-up here runs to
+death or the horizon and is *not* censored at the last creatinine, because death
+is ascertained from the registry rather than from labs.
+
+```{r}
+#| label: tbl-death
+#| echo: false
+d_death <- pt %>%
+  transmute(id = EMPI, ppi_day, ster_day, age_ici, male, dm, htn, eGFR_CRE_baseline,
+            fu_days = pmin(death_days, CFG$HORIZON, na.rm = TRUE),
+            ev      = as.integer(!is.na(death_days) & death_days <= CFG$HORIZON)) %>%
+  filter(fu_days > 0)
+
+cp_d <- build_cp_bands(d_death)
+m_d  <- coxph(as.formula(paste("Surv(tstart, tstop, event) ~ band + ster +",
+                               paste(covars, collapse = " + "))), data = cp_d)
+
+bind_rows(
+  tidy(m_band, exponentiate = TRUE, conf.int = TRUE) %>%
+    filter(grepl("^band", term)) %>% mutate(outcome = "AKI"),
+  tidy(m_d, exponentiate = TRUE, conf.int = TRUE) %>%
+    filter(grepl("^band", term)) %>% mutate(outcome = "Death")
+) %>%
+  transmute(band = sub("^band", "", term), outcome,
+            hr = sprintf("%.2f (%.2f-%.2f)", estimate, conf.low, conf.high)) %>%
+  tidyr::pivot_wider(names_from = outcome, values_from = hr) %>%
+  rename(`Time since first PPI` = band, `AKI HR (95% CI)` = AKI,
+         `Death HR (95% CI)` = Death) %>%
+  kable(caption = "Same cohort, same time-varying exposure, two outcomes.")
+```
+
+::: {.callout-important}
+## How to read this
+If starting a PPI predicts **death** at least as strongly as it predicts kidney
+injury, then whatever the exposure is marking is general illness severity, not
+nephrotoxicity.
+:::
+
+# 5 Steroid co-initiation
+
+The imbalance that the time-varying steroid term exists to absorb.
+
+```{r}
+#| label: tbl-steroid
+#| echo: false
+QC <- readRDS("cache/qc.rds")
+QC$steroid %>%
+  rename(Group = group, N = n, `Started a systemic steroid` = started_steroid, `%` = pct) %>%
+  kable(caption = "Systemic steroid initiation after ICI start, by whether the patient ever starts a PPI.")
+```
+
+```{r}
+#| label: session
+#| echo: false
+#| output: asis
+cat("\n---\n\n*Aggregate results only; cells below ", CFG$SMALL_CELL,
+    " suppressed. Horizon ", CFG$HORIZON, " days.*\n", sep = "")
+```

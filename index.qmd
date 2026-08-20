@@ -27,8 +27,30 @@ hazard of acute kidney injury over the following two years?
 | Stage | File | Role |
 |---|---|---|
 | **Shared helpers** | [`R/ppi_functions.R`](R/ppi_functions.R) | Privacy guards, medication ascertainment, rolling KDIGO comparators, `create_aki()`, counting-process split |
-| **Data management** | [`data_management.qmd`](data_management.qmd) | Cohort, AKI outcome, time-varying PPI exposure, counting-process dataset |
+| **Data management** | [`data_management.qmd`](data_management.qmd) | Cohort, AKI outcome, time-varying PPI and steroid exposure, counting-process dataset |
 | **Analysis** | [`analysis.qmd`](analysis.qmd) | Time-varying Cox model, cumulative incidence of AKI |
+| **Diagnostics** | [`diagnostics.qmd`](diagnostics.qmd) | Mirror window, hazard by time since initiation, induction ladder, death negative control |
+
+## What the diagnostics show
+
+The headline time-varying Cox estimate is large and highly significant, but it
+does not survive inspection as a drug effect:
+
+- **Mirror window** — AKI incidence in the week *before* the first PPI
+  (6.05 per 1,000 person-days) is essentially the same as the week *after*
+  (5.98), and peaks on the prescription day itself (14.43). A drug cannot raise
+  risk before it is taken.
+- **Time since initiation** — the hazard decays from 9.77 in the first week to
+  **0.99 (0.73–1.33)** beyond one year of continued exposure. A nephrotoxin does
+  not become harmless the longer it is taken.
+- **Induction ladder** — 2.57 → 1.85 → 1.60 → 1.36 at 0/30/90/180-day lags,
+  monotone with no plateau.
+- **Death negative control** — from day 8 onward, starting a PPI predicts death
+  *more* strongly than it predicts AKI (e.g. 3.12 vs 2.49 at days 31–90).
+
+Together these point to the acute clinical episode in which the PPI is ordered —
+which also drives the creatinine sampling that makes AKI detectable — rather
+than to the drug.
 
 ## Cohort
 

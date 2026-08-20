@@ -244,3 +244,159 @@ build_cp_ppi <- function(d) {
   rownames(out) <- NULL
   out
 }
+
+
+## ===========================================================================
+## 7  Co-timing diagnostics
+## ===========================================================================
+## A time-varying Cox model answers "is the hazard higher while exposed?" but
+## cannot tell a drug effect from an exposure that is merely ordered at the same
+## clinical moment as the outcome. These helpers re-zero the clock on each
+## patient's own initiation date so the association can be inspected on both
+## sides of the prescription. See diagnostics.qmd.
+
+STEROID_NAMES   <- c("prednisone", "methylpred", "Deltasone", "Orasone", "budesonide",
+                     "Entocort", "methylprednisolone", "prednisolone", "Millipred",
+                     "dexamethasone", "Ozurdex", "Maxidex", "DexPak")
+## Topical / inhaled / ophthalmic routes are not systemic exposure.
+STEROID_EXCLUDE <- c("Inhaler", "Nebulization", "Ointment", "Ophthalmic", "Symbicort")
+
+#' First dispensing strictly after index, excluding non-systemic formulations.
+med_first_after_excl <- function(med, names, exclude) {
+  med %>%
+    filter(!is.na(Medication_Date), !is.na(ICI_Dose_Date),
+           Medication_Date > ICI_Dose_Date,
+           grepl(name_regex(names), Medication, ignore.case = TRUE),
+           !grepl(name_regex(exclude), Medication, ignore.case = TRUE)) %>%
+    group_by(EMPI) %>%
+    summarise(first_date = min(Medication_Date), .groups = "drop")
+}
+
+
+#' AKI incidence in windows placed relative to each initiator's own PPI date.
+#'
+#' Person-time in a window is the part of [ppi_day+lo, ppi_day+hi] that falls
+#' inside the patient's observed follow-up, so windows before day 0 are counted
+#' on exactly the same footing as windows after it. A drug effect should raise
+#' the rate only on the right-hand side; a shared-cause artifact is symmetric.
+#'
+#' The denominator must be the OBSERVATION window (last creatinine / death /
+#' horizon), never the at-risk-for-AKI window. Follow-up for the Cox model stops
+#' at the AKI, so using it here would drop every patient whose AKI preceded
+#' their PPI -- exactly the patients the diagnostic exists to look at, and the
+#' pre-period would come back empty by construction.
+#'
+#' @param pt  patient-level frame: ppi_day, aki_days
+#' @param obs numeric vector, end of observation for each row of `pt`
+#' @return one row per window: person_days, aki, rate per 1,000 person-days
+mirror_window <- function(pt, obs,
+                          bands = list(c(-90, -31), c(-30, -15), c(-14, -8), c(-7, -1),
+                                       c(0, 0), c(1, 7), c(8, 14), c(15, 30),
+                                       c(31, 90), c(91, 365))) {
+  stopifnot(length(obs) == nrow(pt))
+  keep <- !is.na(pt$ppi_day) & pt$ppi_day > 0 & pt$ppi_day <= obs
+  d    <- pt[keep, , drop = FALSE]
+  o    <- obs[keep]
+  rel  <- d$aki_days - d$ppi_day
+  bind_rows(lapply(bands, function(b) {
+    lo <- b[1]; hi <- b[2]
+    s  <- pmax(d$ppi_day + lo, 1)     # never before day 1 of observation
+    e  <- pmin(d$ppi_day + hi, o)     # never past end of observation
+    pd <- sum(pmax(e - s + 1, 0))
+    n  <- sum(!is.na(rel) & rel >= lo & rel <= hi & d$aki_days <= o)
+    tibble(window = sprintf("%+d..%+d", lo, hi), person_days = pd, aki = n,
+           rate_per_1000_pd = if (pd > 0) round(1000 * n / pd, 2) else NA_real_)
+  }))
+}
+
+
+#' Split each patient's follow-up at arbitrary internal cut points.
+#'
+#' @param fu,ev per-patient follow-up end and event indicator
+#' @param cuts  list of numeric vectors, one per patient (times are dropped if
+#'              they fall outside (0, fu))
+#' @return data.frame: row (index into the input), tstart, tstop, event -- the
+#'         event lands only on each patient's final interval
+split_at <- function(fu, ev, cuts) {
+  stopifnot(length(fu) == length(ev), length(fu) == length(cuts))
+  parts <- lapply(seq_along(fu), function(i) {
+    k <- cuts[[i]]
+    k <- k[!is.na(k) & k > 0 & k < fu[i]]
+    b <- sort(unique(c(0, k, fu[i])))
+    n <- length(b) - 1L
+    data.frame(row = rep.int(i, n), tstart = b[seq_len(n)], tstop = b[-1L])
+  })
+  o <- do.call(rbind, parts)
+  o$event <- 0L
+  last <- !duplicated(o$row, fromLast = TRUE)
+  o$event[last] <- ev[o$row[last]]
+  o
+}
+
+
+#' Counting-process frame with exposure split by TIME SINCE initiation.
+#'
+#' Adds `band` (unexposed, then one level per elapsed-time window) and a
+#' time-varying systemic-steroid indicator. Lets the hazard be read as a
+#' function of how long the patient has actually been on the drug -- a real
+#' drug effect should persist, an artifact of the ordering encounter decays.
+#'
+#' @param d id, fu_days, ev, ppi_day, ster_day, + covariates
+#' @param breaks elapsed-day boundaries measured from the initiation date
+build_cp_bands <- function(d, breaks = c(0, 8, 31, 91, 366)) {
+  d <- as.data.frame(d)
+  stopifnot(all(c("id", "fu_days", "ev", "ppi_day") %in% names(d)))
+  if (is.null(d$ster_day)) d$ster_day <- NA_real_
+
+  cuts <- lapply(seq_len(nrow(d)), function(i)
+    c(d$ppi_day[i] + breaks, d$ster_day[i]))
+
+  s   <- split_at(d$fu_days, d$ev, cuts)
+  out <- cbind(d[s$row, setdiff(names(d), c("fu_days", "ev")), drop = FALSE], s)
+
+  rel <- out$tstart - out$ppi_day
+  lab <- c("d0-7", "d8-30", "d31-90", "d91-365", "d>365")
+  ## Index only the exposed rows. `lab[findInterval(...)]` over the whole vector
+  ## would return a SHORTER vector wherever findInterval() gives 0 (any row
+  ## before initiation), silently misaligning every label after it.
+  band_chr <- rep("unexposed", length(rel))
+  on <- !is.na(rel) & rel >= 0
+  band_chr[on] <- lab[findInterval(rel[on], breaks)]
+  out$band <- factor(band_chr, levels = c("unexposed", lab))
+  out$ster <- as.integer(!is.na(out$ster_day) & out$tstart >= out$ster_day)
+  rownames(out) <- NULL
+  out
+}
+
+
+#' Hazard ratio across a ladder of induction (lag) periods.
+#'
+#' Exposure is credited only from `lag` days after the prescription, and the
+#' induction window itself is REMOVED from the risk set rather than handed back
+#' to the comparator (which would double-count it). A pharmacologic effect
+#' should plateau as the lag grows; a co-timing artifact decays monotonically.
+#'
+#' @param d id, fu_days, ev, ppi_day, ster_day, + covariates
+#' @param rhs character vector of extra covariate terms, e.g. c("age_ici","male")
+induction_ladder <- function(d, lags = c(0, 30, 90, 180), rhs = character()) {
+  d <- as.data.frame(d)
+  bind_rows(lapply(lags, function(L) {
+    cuts <- lapply(seq_len(nrow(d)), function(i)
+      c(d$ppi_day[i], d$ppi_day[i] + L, d$ster_day[i]))
+    s  <- split_at(d$fu_days, d$ev, cuts)
+    cp <- cbind(d[s$row, setdiff(names(d), c("fu_days", "ev")), drop = FALSE], s)
+
+    rel        <- cp$tstart - cp$ppi_day
+    cp$ppi_lag <- as.integer(!is.na(rel) & rel >= L)
+    in_window  <- !is.na(rel) & rel >= 0 & rel < L      # induction: drop entirely
+    cp$ster    <- as.integer(!is.na(cp$ster_day) & cp$tstart >= cp$ster_day)
+    cp         <- cp[!in_window, , drop = FALSE]
+
+    f <- stats::as.formula(paste("Surv(tstart, tstop, event) ~ ppi_lag",
+                                 paste(c("", rhs), collapse = " + ")))
+    m <- survival::coxph(f, data = cp)
+    ci <- summary(m)$conf.int["ppi_lag", ]
+    tibble(induction_days = L, events = sum(cp$event),
+           HR = round(ci[1], 2), lo = round(ci[3], 2), hi = round(ci[4], 2))
+  }))
+}
