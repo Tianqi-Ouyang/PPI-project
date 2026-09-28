@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.30">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Tianqi Ouyang">
+<meta name="dcterms.date" content="2026-09-28">
+
+<title>PPI → AKI after ICI — Data Management – PPI → AKI after ICI</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-b6a8276bf55561bdbc268162d41bd1f7.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-6388ad00bb6ecaefa25b9a98db1edf18.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<style>html{ scroll-behavior: smooth; }</style>
+
+
+</head>
+
+<body class="floating nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="./index.html">
+    <span class="navbar-title">PPI → AKI after ICI</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="./index.html"> 
+<span class="menu-text">Overview</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link active" href="./data_management.html" aria-current="page"> 
+<span class="menu-text">Data Management</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="./analysis.html"> 
+<span class="menu-text">Analysis</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="./diagnostics.html"> 
+<span class="menu-text">Diagnostics</span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#setup" id="toc-setup" class="nav-link active" data-scroll-target="#setup">1 Setup</a></li>
+  <li><a href="#cohort-8911" id="toc-cohort-8911" class="nav-link" data-scroll-target="#cohort-8911">2 Cohort (8,911)</a></li>
+  <li><a href="#aki-outcome-post-ici-creatinine" id="toc-aki-outcome-post-ici-creatinine" class="nav-link" data-scroll-target="#aki-outcome-post-ici-creatinine">3 AKI outcome (post-ICI creatinine)</a></li>
+  <li><a href="#b-ckd-composite-outcome-kavita-definition" id="toc-b-ckd-composite-outcome-kavita-definition" class="nav-link" data-scroll-target="#b-ckd-composite-outcome-kavita-definition">3b CKD composite outcome (Kavita definition)</a></li>
+  <li><a href="#follow-up-time-varying-exposure" id="toc-follow-up-time-varying-exposure" class="nav-link" data-scroll-target="#follow-up-time-varying-exposure">4 Follow-up &amp; time-varying exposure</a></li>
+  <li><a href="#save" id="toc-save" class="nav-link" data-scroll-target="#save">5 Save</a></li>
+  <li><a href="#rendered-summary" id="toc-rendered-summary" class="nav-link" data-scroll-target="#rendered-summary">6 Rendered summary</a></li>
+  </ul>
+</nav>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar zindex-bottom">
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">PPI → AKI after ICI — Data Management</h1>
+<p class="subtitle lead">New-user cohort, time-varying PPI exposure, 730-day horizon</p>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Tianqi Ouyang </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">September 28, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>About this page
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Executable specification of the pipeline. Chunks are not run at render time — they read RPDR extracts that stay local. To run:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">purl</span>(<span class="st">"data_management.qmd"</span>, <span class="at">output =</span> <span class="st">"cache/data_management.R"</span>, <span class="at">documentation =</span> <span class="dv">0</span>)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"cache/data_management.R"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Helpers live in <a href="R/ppi_functions.R"><code>R/ppi_functions.R</code></a>. Outputs land in <code>cache/</code> (gitignored); the aggregate <code>cache/qc.rds</code> is what <a href="./analysis.html"><code>analysis.qmd</code></a> renders from.</p>
+</div>
+</div>
+<p>The analysis has four pieces:</p>
+<ol type="1">
+<li><strong>Cohort</strong> — the 8,911 patients with no PPI at or before ICI start and at least one creatinine afterwards.</li>
+<li><strong>Outcome</strong> — AKI, computed from each patient’s serial creatinine <strong>after</strong> the ICI start date.</li>
+<li><strong>Exposure</strong> — PPI, <strong>time-varying</strong>. Every patient is unexposed at ICI start (day 0); a patient who fills a PPI on day <em>k</em> becomes exposed from day <em>k</em>.</li>
+<li><strong>Follow-up</strong> — to the earliest of AKI, last creatinine, death, or 730 days.</li>
+</ol>
+<hr>
+<section id="setup" class="level1">
+<h1>1 Setup</h1>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressPackageStartupMessages</span>({</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">library</span>(readxl); <span class="fu">library</span>(dplyr); <span class="fu">library</span>(tidyr); <span class="fu">library</span>(data.table); <span class="fu">library</span>(survival)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/ppi_functions.R"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>CFG <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">master_xlsx =</span> <span class="st">"/Users/to909/Desktop/Meg/Kavita ICI CKD/Final cohort/final_master_0114_raw.xlsx"</span>,</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">rpdr_dir    =</span> <span class="st">"/Users/to909/Partners HealthCare Dropbox/Tianqi Ouyang/CKD after ICI/RPDR"</span>,</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">rpdr_stem   =</span> <span class="st">"mes98_093025104659807332"</span>,</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">HORIZON     =</span> <span class="dv">730</span>,          <span class="co"># days -- 2 years</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">SMALL_CELL  =</span> <span class="dv">11</span>,</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">cache       =</span> <span class="st">"cache"</span>,</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">REBUILD_RAW =</span> <span class="cn">FALSE</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="fu">dir.create</span>(CFG<span class="sc">$</span>cache, <span class="at">showWarnings =</span> <span class="cn">FALSE</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>rpdr  <span class="ot">&lt;-</span> <span class="cf">function</span>(k) <span class="fu">file.path</span>(CFG<span class="sc">$</span>rpdr_dir, <span class="fu">paste0</span>(CFG<span class="sc">$</span>rpdr_stem, <span class="st">"_"</span>, k, <span class="st">".txt"</span>))</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>cpath <span class="ot">&lt;-</span> <span class="cf">function</span>(x) <span class="fu">file.path</span>(CFG<span class="sc">$</span>cache, <span class="fu">paste0</span>(x, <span class="st">".rds"</span>))</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>cached <span class="ot">&lt;-</span> <span class="cf">function</span>(name, expr) {</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  p <span class="ot">&lt;-</span> <span class="fu">cpath</span>(name)</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span>CFG<span class="sc">$</span>REBUILD_RAW <span class="sc">&amp;&amp;</span> <span class="fu">file.exists</span>(p)) <span class="fu">return</span>(<span class="fu">readRDS</span>(p))</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  v <span class="ot">&lt;-</span> <span class="fu">force</span>(expr); <span class="fu">saveRDS</span>(v, p); v</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>QC <span class="ot">&lt;-</span> <span class="fu">list</span>()   <span class="co"># aggregate-only; rendered</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<hr>
+</section>
+<section id="cohort-8911" class="level1">
+<h1>2 Cohort (8,911)</h1>
+<p>Start from the ICI-CKD analytic master. Keep only new-users (no PPI on or before ICI) with at least one post-ICI creatinine so AKI is ascertainable.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>master <span class="ot">&lt;-</span> <span class="fu">read_excel</span>(CFG<span class="sc">$</span>master_xlsx) <span class="sc">%&gt;%</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">standardize_colnames</span>() <span class="sc">%&gt;%</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">c</span>(ICI_Dose_Date, Date_of_Birth, Date_Of_Death), to_date)) <span class="sc">%&gt;%</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(EMPI, <span class="at">.keep_all =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>baseline <span class="ot">&lt;-</span> master <span class="sc">%&gt;%</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    EMPI, ICI_Dose_Date, Date_Of_Death,</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    age_ici, male,</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">Race =</span> <span class="fu">case_when</span>(Race1 <span class="sc">==</span> <span class="st">"White"</span> <span class="sc">~</span> <span class="st">"White"</span>, Race1 <span class="sc">==</span> <span class="st">"Black"</span> <span class="sc">~</span> <span class="st">"Black"</span>,</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>                     Race1 <span class="sc">==</span> <span class="st">"Asian"</span> <span class="sc">~</span> <span class="st">"Asian"</span>, <span class="cn">TRUE</span> <span class="sc">~</span> <span class="st">"Other/Unknown"</span>),</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    dm, htn, eGFR_CRE_baseline,</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="do">## Precomputed CKD-composite components (Kavita definition; see make_ckd_composite).</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    ckd_incidence, ckd_incidence_date, ckd_progression, ckd_progression_date,</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>    eskd_defination_1, eskd_defination_1_date, esrd_kt_after_ici, esrd_kt_after_ici_date</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="do">## PPI dispensings. `&lt;=` (baseline) and `&gt;` (initiation) are complementary, so a</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="do">## new-user can never also be counted as an initiator.</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>med <span class="ot">&lt;-</span> <span class="fu">cached</span>(<span class="st">"med_ppi"</span>, {</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> data.table<span class="sc">::</span><span class="fu">fread</span>(<span class="fu">rpdr</span>(<span class="st">"Med"</span>), <span class="at">sep =</span> <span class="st">"|"</span>, <span class="at">quote =</span> <span class="st">""</span>, <span class="at">fill =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>                         <span class="at">showProgress =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>                         <span class="at">select =</span> <span class="fu">c</span>(<span class="st">"EMPI"</span>, <span class="st">"Medication_Date"</span>, <span class="st">"Medication"</span>))</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  m[, Medication_Date <span class="sc">:</span><span class="er">=</span> <span class="fu">to_date</span>(Medication_Date, <span class="st">"%m/%d/%Y"</span>)]</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  m[, EMPI <span class="sc">:</span><span class="er">=</span> <span class="fu">as.character</span>(EMPI)]</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  m[<span class="fu">grepl</span>(<span class="fu">name_regex</span>(PPI_NAMES), Medication, <span class="at">ignore.case =</span> <span class="cn">TRUE</span>)][]</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>master_med <span class="ot">&lt;-</span> med <span class="sc">%&gt;%</span> <span class="fu">inner_join</span>(baseline <span class="sc">%&gt;%</span> <span class="fu">select</span>(EMPI, ICI_Dose_Date), <span class="at">by =</span> <span class="st">"EMPI"</span>)</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>ppi_pre  <span class="ot">&lt;-</span> <span class="fu">med_baseline</span>(master_med, PPI_NAMES)                       <span class="co"># PPI on/before ICI</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>ppi_post <span class="ot">&lt;-</span> <span class="fu">med_first_after</span>(master_med, PPI_NAMES) <span class="sc">%&gt;%</span>               <span class="co"># first PPI after ICI</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rename</span>(<span class="at">ppi_first_post_date =</span> first_date)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="do">## Systemic steroids are the key time-varying confounder: in ICI patients they</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="do">## are started to treat immune-related adverse events (including interstitial</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="do">## nephritis), and a PPI is routinely co-prescribed alongside them. Without this</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="do">## term the PPI coefficient absorbs the steroid indication.</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>med_ster <span class="ot">&lt;-</span> <span class="fu">cached</span>(<span class="st">"med_steroid"</span>, {</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> data.table<span class="sc">::</span><span class="fu">fread</span>(<span class="fu">rpdr</span>(<span class="st">"Med"</span>), <span class="at">sep =</span> <span class="st">"|"</span>, <span class="at">quote =</span> <span class="st">""</span>, <span class="at">fill =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>                         <span class="at">showProgress =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>                         <span class="at">select =</span> <span class="fu">c</span>(<span class="st">"EMPI"</span>, <span class="st">"Medication_Date"</span>, <span class="st">"Medication"</span>))</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  m[, Medication_Date <span class="sc">:</span><span class="er">=</span> <span class="fu">to_date</span>(Medication_Date, <span class="st">"%m/%d/%Y"</span>)]</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  m[, EMPI <span class="sc">:</span><span class="er">=</span> <span class="fu">as.character</span>(EMPI)]</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  m[<span class="fu">grepl</span>(<span class="fu">name_regex</span>(STEROID_NAMES), Medication, <span class="at">ignore.case =</span> <span class="cn">TRUE</span>) <span class="sc">&amp;</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>    <span class="sc">!</span><span class="fu">grepl</span>(<span class="fu">name_regex</span>(STEROID_EXCLUDE), Medication, <span class="at">ignore.case =</span> <span class="cn">TRUE</span>)][]</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>ster_post <span class="ot">&lt;-</span> med_ster <span class="sc">%&gt;%</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">inner_join</span>(baseline <span class="sc">%&gt;%</span> <span class="fu">select</span>(EMPI, ICI_Dose_Date), <span class="at">by =</span> <span class="st">"EMPI"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">med_first_after_excl</span>(STEROID_NAMES, STEROID_EXCLUDE) <span class="sc">%&gt;%</span></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rename</span>(<span class="at">ster_first_post_date =</span> first_date)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="do">## Serial creatinine (post-ICI creatinine feeds the AKI outcome; the last</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="do">## creatinine at any time defines end of surveillance).</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>cre <span class="ot">&lt;-</span> <span class="fu">cached</span>(<span class="st">"cre"</span>, {</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  lab <span class="ot">&lt;-</span> data.table<span class="sc">::</span><span class="fu">fread</span>(<span class="fu">rpdr</span>(<span class="st">"Lab"</span>), <span class="at">sep =</span> <span class="st">"|"</span>, <span class="at">quote =</span> <span class="st">""</span>, <span class="at">fill =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>                           <span class="at">showProgress =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>                           <span class="at">select =</span> <span class="fu">c</span>(<span class="st">"EMPI"</span>, <span class="st">"Seq_Date_Time"</span>, <span class="st">"Group_Id"</span>, <span class="st">"Result"</span>))</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  lab <span class="ot">&lt;-</span> lab[Group_Id <span class="sc">==</span> <span class="st">"CRE"</span>]</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  lab[, <span class="st">`</span><span class="at">:=</span><span class="st">`</span>(<span class="at">EMPI =</span> <span class="fu">as.character</span>(EMPI),</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>             <span class="at">cre_date =</span> <span class="fu">to_date</span>(Seq_Date_Time, <span class="st">"%m/%d/%Y"</span>),</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>             <span class="at">cre =</span> <span class="fu">parse_lab_numeric</span>(Result))]</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>  lab[<span class="sc">!</span><span class="fu">is.na</span>(cre_date) <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(cre), .(EMPI, cre_date, cre)][]</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>last_cre <span class="ot">&lt;-</span> cre <span class="sc">%&gt;%</span> <span class="fu">group_by</span>(EMPI) <span class="sc">%&gt;%</span></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">last_cre_date =</span> <span class="fu">max</span>(cre_date), <span class="at">.groups =</span> <span class="st">"drop"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>ledger <span class="ot">&lt;-</span> <span class="fu">list</span>(); step <span class="ot">&lt;-</span> <span class="cf">function</span>(lbl, df) {</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  ledger[[<span class="fu">length</span>(ledger) <span class="sc">+</span> <span class="dv">1</span>]] <span class="ot">&lt;&lt;-</span> <span class="fu">tibble</span>(<span class="at">step =</span> lbl, <span class="at">n =</span> <span class="fu">nrow</span>(df)); df }</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>coh <span class="ot">&lt;-</span> baseline <span class="sc">%&gt;%</span> <span class="fu">step</span>(<span class="st">"ICI-CKD analytic master (as saved)"</span>, .) <span class="sc">%&gt;%</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="fu">is.na</span>(Date_Of_Death) <span class="sc">|</span> Date_Of_Death <span class="sc">&gt;=</span> ICI_Dose_Date) <span class="sc">%&gt;%</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">step</span>(<span class="st">"- death recorded before ICI start"</span>, .) <span class="sc">%&gt;%</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">anti_join</span>(ppi_pre, <span class="at">by =</span> <span class="st">"EMPI"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">step</span>(<span class="st">"- PPI on or before ICI (keep new-users)"</span>, .) <span class="sc">%&gt;%</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(last_cre, <span class="at">by =</span> <span class="st">"EMPI"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">last_cre_days =</span> <span class="fu">as.numeric</span>(last_cre_date <span class="sc">-</span> ICI_Dose_Date)) <span class="sc">%&gt;%</span></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(last_cre_days), last_cre_days <span class="sc">&gt;</span> <span class="dv">0</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>    <span class="fu">step</span>(<span class="st">"- no creatinine after ICI (keep ascertainable)"</span>, .)</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>QC<span class="sc">$</span>ledger <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(ledger) <span class="sc">%&gt;%</span> <span class="fu">mutate</span>(<span class="at">removed =</span> <span class="fu">lag</span>(n) <span class="sc">-</span> n)</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(coh) <span class="sc">==</span> <span class="dv">8911</span>)          <span class="co"># the analytic cohort</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<hr>
+</section>
+<section id="aki-outcome-post-ici-creatinine" class="level1">
+<h1>3 AKI outcome (post-ICI creatinine)</h1>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>aki <span class="ot">&lt;-</span> <span class="fu">create_aki</span>(cre, coh <span class="sc">%&gt;%</span> <span class="fu">select</span>(EMPI, ICI_Dose_Date))</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>coh <span class="ot">&lt;-</span> coh <span class="sc">%&gt;%</span> <span class="fu">left_join</span>(aki <span class="sc">%&gt;%</span> <span class="fu">select</span>(EMPI, aki, aki_date, aki_days), <span class="at">by =</span> <span class="st">"EMPI"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<hr>
+</section>
+<section id="b-ckd-composite-outcome-kavita-definition" class="level1">
+<h1>3b CKD composite outcome (Kavita definition)</h1>
+<p>The <strong>same CKD composite as the Kavita ICI-CKD project</strong>: ESRD/kidney transplant after ICI, or a sustained (&gt;=90 day) eGFR &lt; 10, or incident CKD (baseline eGFR &gt;= 60 with a sustained &gt;30% drop to eGFR &lt; 60), or CKD progression (baseline eGFR &lt; 60 sustained). The component flags and their first-event dates are precomputed in the analytic master; <code>make_ckd_composite()</code> combines them exactly as in <code>Final cohort/Kavita cohort 2026 0130.Rmd</code>.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>coh <span class="ot">&lt;-</span> <span class="fu">make_ckd_composite</span>(coh)   <span class="co"># adds ckd_composite (0/1) and ckd_days</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="do">## Component counts within the new-user cohort (before the horizon is applied).</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>QC<span class="sc">$</span>ckd_components <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">component =</span> <span class="fu">c</span>(<span class="st">"Incident CKD (baseline eGFR&gt;=60)"</span>, <span class="st">"CKD progression (baseline eGFR&lt;60)"</span>,</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>                <span class="st">"Sustained eGFR &lt; 10"</span>, <span class="st">"ESRD / kidney transplant after ICI"</span>,</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>                <span class="st">"Any CKD composite"</span>),</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">n =</span> <span class="fu">c</span>(<span class="fu">sum</span>(coh<span class="sc">$</span>ckd_incidence <span class="sc">==</span> <span class="dv">1</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>        <span class="fu">sum</span>(coh<span class="sc">$</span>ckd_progression <span class="sc">==</span> <span class="dv">1</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>        <span class="fu">sum</span>(coh<span class="sc">$</span>eskd_defination_1 <span class="sc">==</span> <span class="dv">1</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>        <span class="fu">sum</span>(coh<span class="sc">$</span>esrd_kt_after_ici <span class="sc">==</span> <span class="dv">1</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>        <span class="fu">sum</span>(coh<span class="sc">$</span>ckd_composite <span class="sc">==</span> <span class="dv">1</span>))) <span class="sc">%&gt;%</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">n =</span> <span class="fu">suppress_small_cells</span>(n, CFG<span class="sc">$</span>SMALL_CELL))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<hr>
+</section>
+<section id="follow-up-time-varying-exposure" class="level1">
+<h1>4 Follow-up &amp; time-varying exposure</h1>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>pt <span class="ot">&lt;-</span> coh <span class="sc">%&gt;%</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(ppi_post,  <span class="at">by =</span> <span class="st">"EMPI"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(ster_post, <span class="at">by =</span> <span class="st">"EMPI"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">ppi_day    =</span> <span class="fu">as.numeric</span>(ppi_first_post_date  <span class="sc">-</span> ICI_Dose_Date),</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">ster_day   =</span> <span class="fu">as.numeric</span>(ster_first_post_date <span class="sc">-</span> ICI_Dose_Date),</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">death_days =</span> <span class="fu">as.numeric</span>(Date_Of_Death <span class="sc">-</span> ICI_Dose_Date),</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>    <span class="do">## Observation window for the co-timing diagnostics. Unlike fu_days this</span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>    <span class="do">## does NOT stop at the AKI, so an AKI occurring before the PPI still has</span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>    <span class="do">## its person-time counted (see mirror_window()).</span></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">obs_days   =</span> <span class="fu">pmin</span>(last_cre_days, death_days, CFG<span class="sc">$</span>HORIZON, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>    <span class="do">## Follow-up ends at the earliest of AKI, last creatinine, death, horizon.</span></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">fu_days    =</span> <span class="fu">pmin</span>(aki_days, last_cre_days, death_days, CFG<span class="sc">$</span>HORIZON, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>    <span class="do">## Event = AKI within follow-up.</span></span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">ev         =</span> <span class="fu">as.integer</span>(<span class="sc">!</span><span class="fu">is.na</span>(aki_days) <span class="sc">&amp;</span> aki_days <span class="sc">&lt;=</span> fu_days),</span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>    <span class="do">## Initiator = starts a PPI while still at risk.</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">ppi_initiator =</span> <span class="fu">as.integer</span>(<span class="sc">!</span><span class="fu">is.na</span>(ppi_day) <span class="sc">&amp;</span> ppi_day <span class="sc">&gt;</span> <span class="dv">0</span> <span class="sc">&amp;</span> ppi_day <span class="sc">&lt;</span> fu_days),</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>    <span class="do">## CKD composite -- its own follow-up clock, same time-varying PPI exposure.</span></span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>    <span class="do">## Censor at last creatinine / death / horizon (the Kavita censor convention).</span></span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">fu_ckd     =</span> <span class="fu">pmin</span>(ckd_days, last_cre_days, death_days, CFG<span class="sc">$</span>HORIZON, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">ev_ckd     =</span> <span class="fu">as.integer</span>(<span class="sc">!</span><span class="fu">is.na</span>(ckd_days) <span class="sc">&amp;</span> ckd_days <span class="sc">&lt;=</span> fu_ckd),</span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">ckd_initiator =</span> <span class="fu">as.integer</span>(<span class="sc">!</span><span class="fu">is.na</span>(ppi_day) <span class="sc">&amp;</span> ppi_day <span class="sc">&gt;</span> <span class="dv">0</span> <span class="sc">&amp;</span> ppi_day <span class="sc">&lt;</span> fu_ckd)</span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">%&gt;%</span></span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(fu_days <span class="sc">&gt;</span> <span class="dv">0</span>)</span>
+<span id="cb11-26"><a href="#cb11-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-27"><a href="#cb11-27" aria-hidden="true" tabindex="-1"></a><span class="do">## Impute the handful of missing baseline eGFR at the patient level (an</span></span>
+<span id="cb11-28"><a href="#cb11-28" aria-hidden="true" tabindex="-1"></a><span class="do">## adjusted model would otherwise silently drop those rows).</span></span>
+<span id="cb11-29"><a href="#cb11-29" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">any</span>(<span class="fu">is.na</span>(pt<span class="sc">$</span>eGFR_CRE_baseline)))</span>
+<span id="cb11-30"><a href="#cb11-30" aria-hidden="true" tabindex="-1"></a>  pt<span class="sc">$</span>eGFR_CRE_baseline[<span class="fu">is.na</span>(pt<span class="sc">$</span>eGFR_CRE_baseline)] <span class="ot">&lt;-</span></span>
+<span id="cb11-31"><a href="#cb11-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">median</span>(pt<span class="sc">$</span>eGFR_CRE_baseline, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb11-32"><a href="#cb11-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-33"><a href="#cb11-33" aria-hidden="true" tabindex="-1"></a>QC<span class="sc">$</span>cohort <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb11-34"><a href="#cb11-34" aria-hidden="true" tabindex="-1"></a>  <span class="at">n            =</span> <span class="fu">nrow</span>(pt),</span>
+<span id="cb11-35"><a href="#cb11-35" aria-hidden="true" tabindex="-1"></a>  <span class="at">ppi_initiators =</span> <span class="fu">sum</span>(pt<span class="sc">$</span>ppi_initiator),</span>
+<span id="cb11-36"><a href="#cb11-36" aria-hidden="true" tabindex="-1"></a>  <span class="at">never_ppi    =</span> <span class="fu">sum</span>(pt<span class="sc">$</span>ppi_initiator <span class="sc">==</span> <span class="dv">0</span>),</span>
+<span id="cb11-37"><a href="#cb11-37" aria-hidden="true" tabindex="-1"></a>  <span class="at">aki_events   =</span> <span class="fu">sum</span>(pt<span class="sc">$</span>ev),</span>
+<span id="cb11-38"><a href="#cb11-38" aria-hidden="true" tabindex="-1"></a>  <span class="at">person_years =</span> <span class="fu">round</span>(<span class="fu">sum</span>(pt<span class="sc">$</span>fu_days) <span class="sc">/</span> <span class="fl">365.25</span>, <span class="dv">1</span>),</span>
+<span id="cb11-39"><a href="#cb11-39" aria-hidden="true" tabindex="-1"></a>  <span class="at">median_fu_days =</span> <span class="fu">median</span>(pt<span class="sc">$</span>fu_days)</span>
+<span id="cb11-40"><a href="#cb11-40" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-41"><a href="#cb11-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-42"><a href="#cb11-42" aria-hidden="true" tabindex="-1"></a><span class="do">## Steroid co-initiation -- the imbalance the time-varying term exists to absorb.</span></span>
+<span id="cb11-43"><a href="#cb11-43" aria-hidden="true" tabindex="-1"></a>QC<span class="sc">$</span>steroid <span class="ot">&lt;-</span> pt <span class="sc">%&gt;%</span></span>
+<span id="cb11-44"><a href="#cb11-44" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(<span class="at">group =</span> <span class="fu">ifelse</span>(ppi_initiator <span class="sc">==</span> <span class="dv">1</span>, <span class="st">"Started PPI"</span>, <span class="st">"Never PPI"</span>)) <span class="sc">%&gt;%</span></span>
+<span id="cb11-45"><a href="#cb11-45" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">n =</span> dplyr<span class="sc">::</span><span class="fu">n</span>(),</span>
+<span id="cb11-46"><a href="#cb11-46" aria-hidden="true" tabindex="-1"></a>            <span class="at">started_steroid =</span> <span class="fu">sum</span>(<span class="sc">!</span><span class="fu">is.na</span>(ster_day) <span class="sc">&amp;</span> ster_day <span class="sc">&lt;=</span> obs_days),</span>
+<span id="cb11-47"><a href="#cb11-47" aria-hidden="true" tabindex="-1"></a>            <span class="at">pct =</span> <span class="fu">round</span>(<span class="dv">100</span> <span class="sc">*</span> <span class="fu">mean</span>(<span class="sc">!</span><span class="fu">is.na</span>(ster_day) <span class="sc">&amp;</span> ster_day <span class="sc">&lt;=</span> obs_days), <span class="dv">1</span>),</span>
+<span id="cb11-48"><a href="#cb11-48" aria-hidden="true" tabindex="-1"></a>            <span class="at">.groups =</span> <span class="st">"drop"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="do">## One row per exposure interval: unexposed (0 -&gt; ppi_day) then exposed</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="do">## (ppi_day -&gt; end). Surv(tstart, tstop, event) ~ ppi.</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>cp <span class="ot">&lt;-</span> <span class="fu">build_cp_ppi</span>(</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  pt <span class="sc">%&gt;%</span> <span class="fu">transmute</span>(<span class="at">id =</span> EMPI, fu_days, ev, ppi_day,</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>                   age_ici, male, Race, dm, htn, eGFR_CRE_baseline)</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a><span class="do">## Person-time and crude rate by exposure state.</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>QC<span class="sc">$</span>person_time <span class="ot">&lt;-</span> cp <span class="sc">%&gt;%</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">days =</span> tstop <span class="sc">-</span> tstart) <span class="sc">%&gt;%</span></span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(<span class="at">exposure =</span> <span class="fu">ifelse</span>(ppi <span class="sc">==</span> <span class="dv">1</span>, <span class="st">"On PPI (after initiation)"</span>, <span class="st">"Not on PPI"</span>)) <span class="sc">%&gt;%</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">person_years =</span> <span class="fu">round</span>(<span class="fu">sum</span>(days) <span class="sc">/</span> <span class="fl">365.25</span>, <span class="dv">0</span>),</span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>            <span class="at">aki_events   =</span> <span class="fu">sum</span>(event), <span class="at">.groups =</span> <span class="st">"drop"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">rate_per_100py =</span> <span class="fu">round</span>(<span class="dv">100</span> <span class="sc">*</span> aki_events <span class="sc">/</span> person_years, <span class="dv">1</span>))</span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a><span class="do">## Sanity: exactly the cohort's patients and events survive the split.</span></span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(dplyr<span class="sc">::</span><span class="fu">n_distinct</span>(cp<span class="sc">$</span>id) <span class="sc">==</span> <span class="fu">nrow</span>(pt), <span class="fu">sum</span>(cp<span class="sc">$</span>event) <span class="sc">==</span> <span class="fu">sum</span>(pt<span class="sc">$</span>ev))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="do">## Same time-varying PPI split, against the CKD-composite follow-up clock.</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>cp_ckd <span class="ot">&lt;-</span> <span class="fu">build_cp_ppi</span>(</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  pt <span class="sc">%&gt;%</span> <span class="fu">transmute</span>(<span class="at">id =</span> EMPI, <span class="at">fu_days =</span> fu_ckd, <span class="at">ev =</span> ev_ckd, ppi_day,</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>                   age_ici, male, Race, dm, htn, eGFR_CRE_baseline)</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>QC<span class="sc">$</span>cohort_ckd <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">n              =</span> <span class="fu">nrow</span>(pt),</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">ppi_initiators =</span> <span class="fu">sum</span>(pt<span class="sc">$</span>ckd_initiator),</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">never_ppi      =</span> <span class="fu">sum</span>(pt<span class="sc">$</span>ckd_initiator <span class="sc">==</span> <span class="dv">0</span>),</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">ckd_events     =</span> <span class="fu">sum</span>(pt<span class="sc">$</span>ev_ckd),</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">person_years   =</span> <span class="fu">round</span>(<span class="fu">sum</span>(pt<span class="sc">$</span>fu_ckd) <span class="sc">/</span> <span class="fl">365.25</span>, <span class="dv">1</span>),</span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">median_fu_days =</span> <span class="fu">median</span>(pt<span class="sc">$</span>fu_ckd)</span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>QC<span class="sc">$</span>person_time_ckd <span class="ot">&lt;-</span> cp_ckd <span class="sc">%&gt;%</span></span>
+<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">days =</span> tstop <span class="sc">-</span> tstart) <span class="sc">%&gt;%</span></span>
+<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(<span class="at">exposure =</span> <span class="fu">ifelse</span>(ppi <span class="sc">==</span> <span class="dv">1</span>, <span class="st">"On PPI (after initiation)"</span>, <span class="st">"Not on PPI"</span>)) <span class="sc">%&gt;%</span></span>
+<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">person_years =</span> <span class="fu">round</span>(<span class="fu">sum</span>(days) <span class="sc">/</span> <span class="fl">365.25</span>, <span class="dv">0</span>),</span>
+<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a>            <span class="at">ckd_events   =</span> <span class="fu">sum</span>(event), <span class="at">.groups =</span> <span class="st">"drop"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">rate_per_100py =</span> <span class="fu">round</span>(<span class="dv">100</span> <span class="sc">*</span> ckd_events <span class="sc">/</span> person_years, <span class="dv">1</span>))</span>
+<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(dplyr<span class="sc">::</span><span class="fu">n_distinct</span>(cp_ckd<span class="sc">$</span>id) <span class="sc">==</span> <span class="fu">nrow</span>(pt), <span class="fu">sum</span>(cp_ckd<span class="sc">$</span>event) <span class="sc">==</span> <span class="fu">sum</span>(pt<span class="sc">$</span>ev_ckd))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<hr>
+</section>
+<section id="save" class="level1">
+<h1>5 Save</h1>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(pt,      <span class="fu">cpath</span>(<span class="st">"pt"</span>))      <span class="co"># patient-level (holds EMPI: local only)</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(cp,      <span class="fu">cpath</span>(<span class="st">"cp"</span>))      <span class="co"># counting-process frame -- AKI outcome</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(cp_ckd,  <span class="fu">cpath</span>(<span class="st">"cp_ckd"</span>))  <span class="co"># counting-process frame -- CKD composite</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(CFG,     <span class="fu">cpath</span>(<span class="st">"cfg"</span>))</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>walk_ok <span class="ot">&lt;-</span> <span class="fu">vapply</span>(QC, <span class="cf">function</span>(x) <span class="cf">if</span> (<span class="fu">is.data.frame</span>(x)) { <span class="fu">assert_no_phi</span>(x); <span class="cn">TRUE</span> } <span class="cf">else</span> <span class="cn">TRUE</span>,</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>                  <span class="fu">logical</span>(<span class="dv">1</span>))</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>QC<span class="sc">$</span>built_at <span class="ot">&lt;-</span> <span class="fu">Sys.time</span>()</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(QC, <span class="fu">cpath</span>(<span class="st">"qc"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<hr>
+</section>
+<section id="rendered-summary" class="level1">
+<h1>6 Rendered summary</h1>
+<div class="cell">
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Cohort ledger (each step asserted in code)</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;">step</th>
+<th style="text-align: right;">n</th>
+<th style="text-align: right;">removed</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">ICI-CKD analytic master (as saved)</td>
+<td style="text-align: right;">17721</td>
+<td style="text-align: right;">NA</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">- death recorded before ICI start</td>
+<td style="text-align: right;">17718</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">- PPI on or before ICI (keep new-users)</td>
+<td style="text-align: right;">9081</td>
+<td style="text-align: right;">8637</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">- no creatinine after ICI (keep ascertainable)</td>
+<td style="text-align: right;">8911</td>
+<td style="text-align: right;">170</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Analytic cohort (AKI outcome)</caption>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">n</td>
+<td style="text-align: right;">8911.0</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ppi_initiators</td>
+<td style="text-align: right;">3016.0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">never_ppi</td>
+<td style="text-align: right;">5895.0</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">aki_events</td>
+<td style="text-align: right;">2003.0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">person_years</td>
+<td style="text-align: right;">9608.6</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">median_fu_days</td>
+<td style="text-align: right;">359.0</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Person-time and crude AKI rate by time-varying PPI state</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;">exposure</th>
+<th style="text-align: right;">person_years</th>
+<th style="text-align: right;">aki_events</th>
+<th style="text-align: right;">rate_per_100py</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Not on PPI</td>
+<td style="text-align: right;">7464</td>
+<td style="text-align: right;">1269</td>
+<td style="text-align: right;">17.0</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">On PPI (after initiation)</td>
+<td style="text-align: right;">2145</td>
+<td style="text-align: right;">734</td>
+<td style="text-align: right;">34.2</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>CKD composite components (Kavita definition), new-user cohort</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;">component</th>
+<th style="text-align: left;">n</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Incident CKD (baseline eGFR&gt;=60)</td>
+<td style="text-align: left;">460</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">CKD progression (baseline eGFR&lt;60)</td>
+<td style="text-align: left;">78</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Sustained eGFR &lt; 10</td>
+<td style="text-align: left;">&lt;11</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ESRD / kidney transplant after ICI</td>
+<td style="text-align: left;">47</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Any CKD composite</td>
+<td style="text-align: left;">568</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Analytic cohort (CKD composite outcome)</caption>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">n</td>
+<td style="text-align: right;">8911.0</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ppi_initiators</td>
+<td style="text-align: right;">3417.0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">never_ppi</td>
+<td style="text-align: right;">5494.0</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ckd_events</td>
+<td style="text-align: right;">387.0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">person_years</td>
+<td style="text-align: right;">10429.4</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">median_fu_days</td>
+<td style="text-align: right;">446.0</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Person-time and crude CKD rate by time-varying PPI state</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;">exposure</th>
+<th style="text-align: right;">person_years</th>
+<th style="text-align: right;">ckd_events</th>
+<th style="text-align: right;">rate_per_100py</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Not on PPI</td>
+<td style="text-align: right;">7807</td>
+<td style="text-align: right;">256</td>
+<td style="text-align: right;">3.3</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">On PPI (after initiation)</td>
+<td style="text-align: right;">2623</td>
+<td style="text-align: right;">131</td>
+<td style="text-align: right;">5.0</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+<p>© 2026 · Code reference only — no patient data rendered</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+<script src="site_libs/quarto-html/zenscroll-min.js"></script>
+</body></html>
