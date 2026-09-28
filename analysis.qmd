@@ -25,17 +25,18 @@ suppressPackageStartupMessages({
   library(gtsummary); library(ggplot2); library(knitr)
 })
 source("R/ppi_functions.R")
-have <- all(file.exists(file.path("cache", paste0(c("qc","pt","cp","cfg"), ".rds"))))
+have <- all(file.exists(file.path("cache", paste0(c("qc","pt","cp","cp_ckd","cfg"), ".rds"))))
 ```
 
 ```{r}
 #| label: load
 #| include: false
 if (!have) knitr::knit_exit()
-QC  <- readRDS("cache/qc.rds")
-pt  <- readRDS("cache/pt.rds")
-cp  <- readRDS("cache/cp.rds")
-CFG <- readRDS("cache/cfg.rds")
+QC     <- readRDS("cache/qc.rds")
+pt     <- readRDS("cache/pt.rds")
+cp     <- readRDS("cache/cp.rds")
+cp_ckd <- readRDS("cache/cp_ckd.rds")
+CFG    <- readRDS("cache/cfg.rds")
 
 ## Human-readable factor labels used by both tables. dm/htn/male are stored 0/1.
 label_covars <- function(df) {
@@ -194,6 +195,102 @@ data.frame(time = km$time, ci = 1 - km$surv) |>
   geom_step(color = "#0B6E6D", linewidth = 0.9) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, NA)) +
   labs(x = "Days since ICI start", y = "Cumulative incidence of AKI") +
+  theme_minimal(base_size = 12)
+```
+
+# 5 CKD composite outcome (Kavita definition)
+
+Second outcome, using the **same CKD composite as the Kavita ICI-CKD project**:
+ESRD / kidney transplant after ICI, sustained (>=90 day) eGFR < 10, incident CKD
+(baseline eGFR >= 60 with a sustained > 30% drop to eGFR < 60), or CKD
+progression (baseline eGFR < 60 sustained). Exposure and covariates are exactly
+as in the AKI model above; only the outcome and its follow-up clock change.
+
+**Components contributing to the composite (new-user cohort):**
+
+```{r}
+#| label: tbl-ckd-components
+#| echo: false
+kable(QC$ckd_components)
+```
+
+**Person-time and crude CKD rate by time-varying PPI state:**
+
+```{r}
+#| label: tbl-ckd-person-time
+#| echo: false
+kable(QC$person_time_ckd)
+```
+
+```{r}
+#| label: ckd-cox
+#| echo: false
+cpc <- cp_ckd %>%
+  label_covars() %>%
+  mutate(PPI = factor(if_else(ppi == 1, "On PPI", "Not on PPI"), c("Not on PPI", "On PPI")))
+
+mc_crude <- coxph(Surv(tstart, tstop, event) ~ PPI, data = cpc)
+mc_adj   <- coxph(Surv(tstart, tstop, event) ~ PPI + age_ici + Sex + Race +
+                    Diabetes + Hypertension + eGFR_CRE_baseline, data = cpc)
+nc_pt <- dplyr::n_distinct(cpc$id); nc_ev <- sum(cpc$event)
+```
+
+**The PPI effect on CKD composite (On PPI vs Not on PPI), unadjusted and adjusted:**
+
+```{r}
+#| label: tbl-ckd-effect
+#| echo: false
+bind_rows(
+  broom::tidy(mc_crude, exponentiate = TRUE, conf.int = TRUE) %>%
+    filter(grepl("PPI", term)) %>% mutate(model = "Unadjusted"),
+  broom::tidy(mc_adj, exponentiate = TRUE, conf.int = TRUE) %>%
+    filter(grepl("PPI", term)) %>% mutate(model = "Adjusted")
+) %>%
+  transmute(Model = model,
+            `HR for CKD composite (95% CI)` =
+              sprintf("%.2f (%.2f-%.2f)", estimate, conf.low, conf.high),
+            p = ifelse(p.value < .001, "<0.001", sprintf("%.3f", p.value))) %>%
+  kable()
+```
+
+Full adjusted model — every covariate:
+
+```{r}
+#| label: tbl-ckd-cox-full
+#| echo: false
+tbl_regression(mc_adj, exponentiate = TRUE,
+               label = list(age_ici ~ "Age at ICI start (per year)",
+                            eGFR_CRE_baseline ~ "Baseline eGFR (per mL/min/1.73 m2)")) %>%
+  modify_header(estimate ~ "**HR**") %>%
+  modify_caption(sprintf(
+    "**Table 3. Multivariable time-varying Cox model for the CKD composite.** %s patients, %s CKD events over %s person-years.",
+    format(nc_pt, big.mark = ","), format(nc_ev, big.mark = ","),
+    format(QC$cohort_ckd$person_years, big.mark = ",")))
+```
+
+```{r}
+#| label: ckd-ph-check
+#| echo: false
+#| output: asis
+zc  <- cox.zph(mc_adj)
+zct <- as.data.frame(zc$table)["PPI", , drop = FALSE]
+cat(sprintf("_Proportional-hazards check for the PPI term (cox.zph): p = %s._\n\n",
+            ifelse(zct$p < .001, "<0.001", sprintf("%.3f", zct$p))))
+```
+
+**Cumulative incidence of the CKD composite:**
+
+```{r}
+#| label: fig-ckd-cuminc
+#| echo: false
+#| fig-height: 4.2
+#| fig-cap: "Cumulative incidence of the CKD composite within 730 days of ICI start (8,911 new-users; death and end of creatinine follow-up treated as censoring)."
+kmc <- survfit(Surv(fu_ckd, ev_ckd) ~ 1, data = pt)
+data.frame(time = kmc$time, ci = 1 - kmc$surv) |>
+  ggplot(aes(time, ci)) +
+  geom_step(color = "#8a4b0f", linewidth = 0.9) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, NA)) +
+  labs(x = "Days since ICI start", y = "Cumulative incidence of CKD composite") +
   theme_minimal(base_size = 12)
 ```
 

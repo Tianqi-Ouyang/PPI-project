@@ -204,6 +204,58 @@ create_aki <- function(cre, index,
 
 
 ## ===========================================================================
+## 5b  CKD composite outcome  (Kavita ICI-CKD definition)
+## ===========================================================================
+## Uses the SAME definition as the Kavita ICI-CKD project. The per-patient
+## component flags and their first-event dates are precomputed in the analytic
+## master (make_ckd_outcome_date, sustained >=90d rule) and are combined here
+## exactly as in "Final cohort/Kavita cohort 2026 0130.Rmd":
+##
+##   eskd_composite = esrd_kt_after_ici OR eskd_defination_1  (sustained eGFR<10)
+##   ckd_composite  = eskd_composite OR ckd_incidence OR ckd_progression
+##     ckd_incidence   : baseline eGFR>=60, sustained >30% drop AND eGFR<60
+##     ckd_progression : baseline eGFR<60,  sustained eGFR<60
+##
+## Each component is a >=90-day-sustained episode; the event date is that
+## episode's start. NA components are treated as 0 (unascertainable -> no
+## event), exactly as Kavita does with ifelse(is.na(.),0,.).
+
+#' Combine the precomputed CKD components into the Kavita CKD composite.
+#'
+#' @param df rows with ICI_Dose_Date plus the eight component columns
+#'   (ckd_incidence[_date], ckd_progression[_date], eskd_defination_1[_date],
+#'    esrd_kt_after_ici[_date]).
+#' @return df with added: ckd_composite (0/1) and ckd_days (days from ICI to the
+#'   earliest qualifying component; NA when there is no event).
+make_ckd_composite <- function(df) {
+  need <- c("ICI_Dose_Date", "ckd_incidence", "ckd_incidence_date",
+            "ckd_progression", "ckd_progression_date", "eskd_defination_1",
+            "eskd_defination_1_date", "esrd_kt_after_ici", "esrd_kt_after_ici_date")
+  miss <- setdiff(need, names(df))
+  if (length(miss)) stop("make_ckd_composite: missing ", paste(miss, collapse = ", "))
+
+  df %>%
+    mutate(across(c(ICI_Dose_Date, ckd_incidence_date, ckd_progression_date,
+                    eskd_defination_1_date, esrd_kt_after_ici_date), to_date),
+      eskd_composite = ifelse(esrd_kt_after_ici == 1 | eskd_defination_1 == 1, 1, 0),
+      eskd_composite = ifelse(is.na(eskd_composite), 0, eskd_composite),
+      eskd_composite_date = suppressWarnings(
+        pmin(esrd_kt_after_ici_date, eskd_defination_1_date, na.rm = TRUE)),
+      time_to_eskd_composite  = as.numeric(eskd_composite_date  - ICI_Dose_Date),
+      time_to_ckd_incidence   = as.numeric(ckd_incidence_date   - ICI_Dose_Date),
+      time_to_ckd_progression = as.numeric(ckd_progression_date - ICI_Dose_Date),
+      ckd_composite = ifelse(eskd_composite == 1 | ckd_incidence == 1 |
+                               ckd_progression == 1, 1, 0),
+      ckd_composite = ifelse(is.na(ckd_composite), 0, ckd_composite),
+      ckd_days = suppressWarnings(pmin(time_to_eskd_composite, time_to_ckd_incidence,
+                                       time_to_ckd_progression, na.rm = TRUE)),
+      ## No event -> NA (never a 0-day or Inf sentinel leaking into follow-up).
+      ckd_days = ifelse(ckd_composite == 1 & is.finite(ckd_days), ckd_days, NA_real_)
+    )
+}
+
+
+## ===========================================================================
 ## 6  Counting-process split for one time-varying exposure (PPI)
 ## ===========================================================================
 

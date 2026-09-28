@@ -89,7 +89,10 @@ baseline <- master %>%
     age_ici, male,
     Race = case_when(Race1 == "White" ~ "White", Race1 == "Black" ~ "Black",
                      Race1 == "Asian" ~ "Asian", TRUE ~ "Other/Unknown"),
-    dm, htn, eGFR_CRE_baseline
+    dm, htn, eGFR_CRE_baseline,
+    ## Precomputed CKD-composite components (Kavita definition; see make_ckd_composite).
+    ckd_incidence, ckd_incidence_date, ckd_progression, ckd_progression_date,
+    eskd_defination_1, eskd_defination_1_date, esrd_kt_after_ici, esrd_kt_after_ici_date
   )
 ```
 
@@ -185,6 +188,34 @@ coh <- coh %>% left_join(aki %>% select(EMPI, aki, aki_date, aki_days), by = "EM
 
 ---
 
+# 3b CKD composite outcome (Kavita definition)
+
+The **same CKD composite as the Kavita ICI-CKD project**: ESRD/kidney transplant
+after ICI, or a sustained (>=90 day) eGFR < 10, or incident CKD (baseline
+eGFR >= 60 with a sustained >30% drop to eGFR < 60), or CKD progression (baseline
+eGFR < 60 sustained). The component flags and their first-event dates are
+precomputed in the analytic master; `make_ckd_composite()` combines them exactly
+as in `Final cohort/Kavita cohort 2026 0130.Rmd`.
+
+```{r}
+#| label: ckd-composite
+coh <- make_ckd_composite(coh)   # adds ckd_composite (0/1) and ckd_days
+
+## Component counts within the new-user cohort (before the horizon is applied).
+QC$ckd_components <- tibble(
+  component = c("Incident CKD (baseline eGFR>=60)", "CKD progression (baseline eGFR<60)",
+                "Sustained eGFR < 10", "ESRD / kidney transplant after ICI",
+                "Any CKD composite"),
+  n = c(sum(coh$ckd_incidence == 1, na.rm = TRUE),
+        sum(coh$ckd_progression == 1, na.rm = TRUE),
+        sum(coh$eskd_defination_1 == 1, na.rm = TRUE),
+        sum(coh$esrd_kt_after_ici == 1, na.rm = TRUE),
+        sum(coh$ckd_composite == 1))) %>%
+  mutate(n = suppress_small_cells(n, CFG$SMALL_CELL))
+```
+
+---
+
 # 4 Follow-up & time-varying exposure
 
 ```{r}
@@ -205,7 +236,13 @@ pt <- coh %>%
     ## Event = AKI within follow-up.
     ev         = as.integer(!is.na(aki_days) & aki_days <= fu_days),
     ## Initiator = starts a PPI while still at risk.
-    ppi_initiator = as.integer(!is.na(ppi_day) & ppi_day > 0 & ppi_day < fu_days)
+    ppi_initiator = as.integer(!is.na(ppi_day) & ppi_day > 0 & ppi_day < fu_days),
+
+    ## CKD composite -- its own follow-up clock, same time-varying PPI exposure.
+    ## Censor at last creatinine / death / horizon (the Kavita censor convention).
+    fu_ckd     = pmin(ckd_days, last_cre_days, death_days, CFG$HORIZON, na.rm = TRUE),
+    ev_ckd     = as.integer(!is.na(ckd_days) & ckd_days <= fu_ckd),
+    ckd_initiator = as.integer(!is.na(ppi_day) & ppi_day > 0 & ppi_day < fu_ckd)
   ) %>%
   filter(fu_days > 0)
 
@@ -254,15 +291,43 @@ QC$person_time <- cp %>%
 stopifnot(dplyr::n_distinct(cp$id) == nrow(pt), sum(cp$event) == sum(pt$ev))
 ```
 
+```{r}
+#| label: counting-process-ckd
+## Same time-varying PPI split, against the CKD-composite follow-up clock.
+cp_ckd <- build_cp_ppi(
+  pt %>% transmute(id = EMPI, fu_days = fu_ckd, ev = ev_ckd, ppi_day,
+                   age_ici, male, Race, dm, htn, eGFR_CRE_baseline)
+)
+
+QC$cohort_ckd <- tibble(
+  n              = nrow(pt),
+  ppi_initiators = sum(pt$ckd_initiator),
+  never_ppi      = sum(pt$ckd_initiator == 0),
+  ckd_events     = sum(pt$ev_ckd),
+  person_years   = round(sum(pt$fu_ckd) / 365.25, 1),
+  median_fu_days = median(pt$fu_ckd)
+)
+
+QC$person_time_ckd <- cp_ckd %>%
+  mutate(days = tstop - tstart) %>%
+  group_by(exposure = ifelse(ppi == 1, "On PPI (after initiation)", "Not on PPI")) %>%
+  summarise(person_years = round(sum(days) / 365.25, 0),
+            ckd_events   = sum(event), .groups = "drop") %>%
+  mutate(rate_per_100py = round(100 * ckd_events / person_years, 1))
+
+stopifnot(dplyr::n_distinct(cp_ckd$id) == nrow(pt), sum(cp_ckd$event) == sum(pt$ev_ckd))
+```
+
 ---
 
 # 5 Save
 
 ```{r}
 #| label: save
-saveRDS(pt,  cpath("pt"))    # patient-level (holds EMPI: local only)
-saveRDS(cp,  cpath("cp"))    # counting-process frame for the Cox model
-saveRDS(CFG, cpath("cfg"))
+saveRDS(pt,      cpath("pt"))      # patient-level (holds EMPI: local only)
+saveRDS(cp,      cpath("cp"))      # counting-process frame -- AKI outcome
+saveRDS(cp_ckd,  cpath("cp_ckd"))  # counting-process frame -- CKD composite
+saveRDS(CFG,     cpath("cfg"))
 
 walk_ok <- vapply(QC, function(x) if (is.data.frame(x)) { assert_no_phi(x); TRUE } else TRUE,
                   logical(1))
@@ -285,6 +350,9 @@ if (!file.exists(qc_path)) {
 }
 QC <- readRDS(qc_path)
 knitr::kable(QC$ledger,       caption = "Cohort ledger (each step asserted in code)")
-knitr::kable(t(QC$cohort),    caption = "Analytic cohort")
+knitr::kable(t(QC$cohort),    caption = "Analytic cohort (AKI outcome)")
 knitr::kable(QC$person_time,  caption = "Person-time and crude AKI rate by time-varying PPI state")
+knitr::kable(QC$ckd_components, caption = "CKD composite components (Kavita definition), new-user cohort")
+knitr::kable(t(QC$cohort_ckd), caption = "Analytic cohort (CKD composite outcome)")
+knitr::kable(QC$person_time_ckd, caption = "Person-time and crude CKD rate by time-varying PPI state")
 ```
